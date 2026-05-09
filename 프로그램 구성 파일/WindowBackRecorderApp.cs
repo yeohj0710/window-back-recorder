@@ -13,8 +13,10 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using WinForms = System.Windows.Forms;
 
@@ -248,6 +250,7 @@ namespace WindowBackRecorder
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
             };
+            TryApplyDarkScrollBar(controlScroll);
             rightPanel.Child = controlScroll;
 
             var controls = new StackPanel();
@@ -453,6 +456,50 @@ namespace WindowBackRecorder
             };
         }
 
+        private void TryApplyDarkScrollBar(ScrollViewer scrollViewer)
+        {
+            try
+            {
+                scrollViewer.Resources[typeof(ScrollBar)] = XamlReader.Parse(@"
+<Style xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
+       xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
+       TargetType=""{x:Type ScrollBar}"">
+  <Setter Property=""Width"" Value=""8""/>
+  <Setter Property=""MinWidth"" Value=""8""/>
+  <Setter Property=""Background"" Value=""#0b1118""/>
+  <Setter Property=""Template"">
+    <Setter.Value>
+      <ControlTemplate TargetType=""{x:Type ScrollBar}"">
+        <Border Background=""#0b1118"">
+          <Track x:Name=""PART_Track"" IsDirectionReversed=""True"">
+            <Track.DecreaseRepeatButton>
+              <RepeatButton Command=""{x:Static ScrollBar.PageUpCommand}"" Opacity=""0"" Focusable=""False""/>
+            </Track.DecreaseRepeatButton>
+            <Track.Thumb>
+              <Thumb MinHeight=""36"">
+                <Thumb.Template>
+                  <ControlTemplate TargetType=""{x:Type Thumb}"">
+                    <Border Width=""6"" Margin=""1"" CornerRadius=""3"" Background=""#405162""/>
+                  </ControlTemplate>
+                </Thumb.Template>
+              </Thumb>
+            </Track.Thumb>
+            <Track.IncreaseRepeatButton>
+              <RepeatButton Command=""{x:Static ScrollBar.PageDownCommand}"" Opacity=""0"" Focusable=""False""/>
+            </Track.IncreaseRepeatButton>
+          </Track>
+        </Border>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>") as Style;
+            }
+            catch
+            {
+                // The app still works with the default scrollbar if this style fails.
+            }
+        }
+
         private ToggleButton CreateToggle(string text, bool isChecked)
         {
             var toggle = new ToggleButton
@@ -472,12 +519,16 @@ namespace WindowBackRecorder
             var toggle = new ToggleButton
             {
                 Content = text,
-                IsChecked = isChecked,
+                IsChecked = false,
                 Height = 34,
                 Margin = new Thickness(0, 0, 0, 8),
                 Style = CreateSwitchStyle(),
                 Cursor = System.Windows.Input.Cursors.Hand
             };
+            if (isChecked)
+            {
+                toggle.Loaded += delegate { toggle.IsChecked = true; };
+            }
             return toggle;
         }
 
@@ -619,6 +670,7 @@ namespace WindowBackRecorder
             outer.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
             outer.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
             outer.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            outer.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
             outer.SetValue(Border.SnapsToDevicePixelsProperty, true);
 
             var dock = new FrameworkElementFactory(typeof(DockPanel));
@@ -646,6 +698,7 @@ namespace WindowBackRecorder
             thumb.SetValue(FrameworkElement.MarginProperty, new Thickness(3));
             thumb.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
             thumb.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            thumb.SetValue(UIElement.RenderTransformProperty, new TranslateTransform(0, 0));
             thumb.SetValue(System.Windows.Shapes.Shape.FillProperty, Brush("#c3cfdb"));
             track.AppendChild(thumb);
 
@@ -660,7 +713,8 @@ namespace WindowBackRecorder
             checkedTrigger.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#35d0c2"), "SwitchTrack"));
             checkedTrigger.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#35d0c2"), "SwitchTrack"));
             checkedTrigger.Setters.Add(new Setter(System.Windows.Shapes.Ellipse.FillProperty, Brush("#ffffff"), "SwitchThumb"));
-            checkedTrigger.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Right, "SwitchThumb"));
+            checkedTrigger.EnterActions.Add(new BeginStoryboard { Storyboard = CreateSwitchThumbStoryboard(22) });
+            checkedTrigger.ExitActions.Add(new BeginStoryboard { Storyboard = CreateSwitchThumbStoryboard(0) });
             template.Triggers.Add(checkedTrigger);
 
             var disabledTrigger = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
@@ -670,6 +724,22 @@ namespace WindowBackRecorder
             template.Triggers.Add(disabledTrigger);
 
             return template;
+        }
+
+        private Storyboard CreateSwitchThumbStoryboard(double x)
+        {
+            var animation = new DoubleAnimation
+            {
+                To = x,
+                Duration = new Duration(TimeSpan.FromMilliseconds(170)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+            };
+            Storyboard.SetTargetName(animation, "SwitchThumb");
+            Storyboard.SetTargetProperty(animation, new PropertyPath("(UIElement.RenderTransform).(TranslateTransform.X)"));
+
+            var storyboard = new Storyboard();
+            storyboard.Children.Add(animation);
+            return storyboard;
         }
 
         private FrameworkElement Spacer(double width, double height)

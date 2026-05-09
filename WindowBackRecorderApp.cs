@@ -665,18 +665,30 @@ namespace WindowBackRecorder
             args.Add("23");
             args.Add(outputPath);
 
-            return StartProcess("ffmpeg", args, "[화면] ");
+            return StartProcess(GetFfmpegPath(), args, "[화면] ");
         }
 
         private Process StartLoopbackAudio(string audioPath, string sourceName, bool monitorOn)
         {
+            string fileName;
             var args = new List<string>();
-            args.Add(Path.Combine(supportDir, "loopback_audio_recorder.py"));
+            string helperPath = GetAudioHelperPath();
+            if (!string.IsNullOrEmpty(helperPath))
+            {
+                fileName = helperPath;
+            }
+            else
+            {
+                string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
+                if (!File.Exists(script)) script = Path.Combine(appDir, "loopback_audio_recorder.py");
+                fileName = "python";
+                args.Add(script);
+            }
             args.Add(audioPath);
             args.Add("--source");
             args.Add(sourceName);
             if (monitorOn) args.Add("--monitor-on");
-            var process = StartProcess("python", args, "[소리] ");
+            var process = StartProcess(fileName, args, "[소리] ");
             if (process.WaitForExit(900))
             {
                 throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows에서 소리가 나가는 출력 장치와 같은 항목을 선택해주세요.");
@@ -798,7 +810,7 @@ namespace WindowBackRecorder
 
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "ffmpeg",
+                    FileName = GetFfmpegPath(),
                     Arguments = JoinArgs(args),
                     WorkingDirectory = supportDir,
                     UseShellExecute = false,
@@ -998,15 +1010,29 @@ namespace WindowBackRecorder
         private List<AudioSourceInfo> GetLoopbackSources()
         {
             var results = new List<AudioSourceInfo>();
-            string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
-            if (!File.Exists(script)) return results;
+            string fileName;
+            var args = new List<string>();
+            string helperPath = GetAudioHelperPath();
+            if (!string.IsNullOrEmpty(helperPath))
+            {
+                fileName = helperPath;
+            }
+            else
+            {
+                string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
+                if (!File.Exists(script)) script = Path.Combine(appDir, "loopback_audio_recorder.py");
+                if (!File.Exists(script)) return results;
+                fileName = "python";
+                args.Add(script);
+            }
+            args.Add("--list-json");
 
             try
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "python",
-                    Arguments = JoinArgs(new List<string> { script, "--list-json" }),
+                    FileName = fileName,
+                    Arguments = JoinArgs(args),
                     WorkingDirectory = supportDir,
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -1047,7 +1073,7 @@ namespace WindowBackRecorder
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "ffmpeg",
+                    FileName = GetFfmpegPath(),
                     Arguments = "-hide_banner -h filter=" + filterName,
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -1094,6 +1120,28 @@ namespace WindowBackRecorder
         private static SolidColorBrush Brush(string hex)
         {
             return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        }
+
+        private string GetFfmpegPath()
+        {
+            string bundled = Path.Combine(supportDir, "bin", "ffmpeg.exe");
+            if (File.Exists(bundled)) return bundled;
+
+            bundled = Path.Combine(supportDir, "ffmpeg.exe");
+            if (File.Exists(bundled)) return bundled;
+
+            return "ffmpeg";
+        }
+
+        private string GetAudioHelperPath()
+        {
+            string bundled = Path.Combine(supportDir, "bin", "loopback_audio_recorder.exe");
+            if (File.Exists(bundled)) return bundled;
+
+            bundled = Path.Combine(supportDir, "loopback_audio_recorder.exe");
+            if (File.Exists(bundled)) return bundled;
+
+            return null;
         }
 
         private static void ApplyPythonUtf8Environment(ProcessStartInfo psi)

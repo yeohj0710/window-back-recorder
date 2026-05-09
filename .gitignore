@@ -2,9 +2,10 @@ recordings/
 settings.json
 __pycache__/
 *.py[cod]
+build/
 *.video.mkv
 *.audio.wav
 *.log
 WindowBackRecorder.exe
-dist/*/
+dist/*
 diagnostics/

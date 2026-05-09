@@ -59,6 +59,8 @@ namespace WindowBackRecorder
         private WindowInfo selectedWindow;
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
+        private DateTime lastWindowScanUtc = DateTime.MinValue;
+        private string lastWindowSnapshot = "";
 
         private const string SupportFolderName = "프로그램 구성 파일";
         private const string NoAudioLabel = "소리 없이 녹화";
@@ -183,6 +185,7 @@ namespace WindowBackRecorder
             var listHeader = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             DockPanel.SetDock(listHeader, Dock.Top);
             leftDock.Children.Add(listHeader);
 
@@ -204,6 +207,12 @@ namespace WindowBackRecorder
             };
             Grid.SetColumn(targetText, 1);
             listHeader.Children.Add(targetText);
+
+            var listRefreshButton = CreateSmallButton("목록 새로고침", delegate { RefreshWindows(); });
+            listRefreshButton.Height = 30;
+            listRefreshButton.Margin = new Thickness(10, 0, 0, 0);
+            Grid.SetColumn(listRefreshButton, 2);
+            listHeader.Children.Add(listRefreshButton);
 
             windowList = new ListView
             {
@@ -518,8 +527,20 @@ namespace WindowBackRecorder
 
         private void RefreshWindows()
         {
+            RefreshWindows(false);
+        }
+
+        private void RefreshWindows(bool quiet)
+        {
             var selectedHandle = selectedWindow == null ? IntPtr.Zero : selectedWindow.Handle;
             var windows = NativeWindows.GetOpenWindows();
+            string snapshot = BuildWindowSnapshot(windows);
+            if (quiet && string.Equals(snapshot, lastWindowSnapshot, StringComparison.Ordinal))
+            {
+                return;
+            }
+            lastWindowSnapshot = snapshot;
+
             windowList.ItemsSource = windows;
             selectedWindow = null;
             targetText.Text = "창을 선택해주세요";
@@ -533,7 +554,25 @@ namespace WindowBackRecorder
                 }
             }
 
-            AppendLog("창 목록 새로고침: " + windows.Count.ToString(CultureInfo.InvariantCulture) + "개");
+            if (!quiet)
+            {
+                AppendLog("창 목록 새로고침: " + windows.Count.ToString(CultureInfo.InvariantCulture) + "개");
+            }
+        }
+
+        private string BuildWindowSnapshot(List<WindowInfo> windows)
+        {
+            var builder = new StringBuilder();
+            foreach (WindowInfo info in windows)
+            {
+                builder.Append(info.Handle.ToInt64().ToString(CultureInfo.InvariantCulture));
+                builder.Append('|');
+                builder.Append(info.Title);
+                builder.Append('|');
+                builder.Append(info.ProcessName);
+                builder.Append(';');
+            }
+            return builder.ToString();
         }
 
         private void RefreshAudioSources()
@@ -956,6 +995,12 @@ namespace WindowBackRecorder
 
         private void OnProcessTimer(object sender, EventArgs e)
         {
+            if (activeRecording == null && (DateTime.UtcNow - lastWindowScanUtc).TotalSeconds >= 2)
+            {
+                lastWindowScanUtc = DateTime.UtcNow;
+                RefreshWindows(true);
+            }
+
             if (ffmpegProcess != null && ffmpegProcess.HasExited)
             {
                 int code = ffmpegProcess.ExitCode;

@@ -29,6 +29,10 @@ $helperBuild = Join-Path $repo "build\loopback_audio_recorder"
 $helperDist = Join-Path $helperBuild "dist"
 $helperWork = Join-Path $helperBuild "work"
 $helperExe = Join-Path $helperDist "loopback_audio_recorder.exe"
+$processHelperBuild = Join-Path $repo "build\process_audio_recorder"
+$processHelperDist = Join-Path $processHelperBuild "dist"
+$processHelperWork = Join-Path $processHelperBuild "work"
+$processHelperExe = Join-Path $processHelperDist "process_audio_recorder.exe"
 
 & (Join-Path $repo "build.ps1")
 if ($LASTEXITCODE -ne 0) {
@@ -72,6 +76,29 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $helperExe)) {
     throw "Could not build loopback audio helper."
 }
 
+python -m pip install process-audio-capture==1.0.0
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not install process-audio-capture."
+}
+
+if (Test-Path $processHelperBuild) {
+    Remove-Item -LiteralPath $processHelperBuild -Recurse -Force
+}
+
+python -m PyInstaller `
+    --noconfirm `
+    --clean `
+    --onefile `
+    --name process_audio_recorder `
+    --distpath "$processHelperDist" `
+    --workpath "$processHelperWork" `
+    --specpath "$processHelperBuild" `
+    (Join-Path $repo "process_audio_recorder.py")
+
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $processHelperExe)) {
+    throw "Could not build process audio helper."
+}
+
 if (Test-Path $stageRoot) {
     Remove-Item -LiteralPath $stageRoot -Recurse -Force
 }
@@ -87,6 +114,7 @@ Copy-Item -LiteralPath (Join-Path $projectRoot $exeName) -Destination (Join-Path
 Copy-Item -LiteralPath (Join-Path $projectRoot $guideName) -Destination (Join-Path $stageRoot $guideName) -Force
 Copy-Item -LiteralPath $ffmpeg.Source -Destination (Join-Path $bin "ffmpeg.exe") -Force
 Copy-Item -LiteralPath $helperExe -Destination (Join-Path $bin "loopback_audio_recorder.exe") -Force
+Copy-Item -LiteralPath $processHelperExe -Destination (Join-Path $bin "process_audio_recorder.exe") -Force
 
 $supportFiles = @(
     "README.md",

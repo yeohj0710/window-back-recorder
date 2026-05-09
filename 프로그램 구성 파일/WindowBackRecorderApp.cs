@@ -259,7 +259,7 @@ namespace WindowBackRecorder
             folderRow.Children.Add(browse);
 
             controls.Children.Add(FormLabel("소리"));
-            audioStatusText = MetaText("기본 출력 소리 자동 녹음");
+            audioStatusText = MetaText("선택한 앱 소리만 자동 녹음");
             audioStatusText.Margin = new Thickness(0, 4, 0, 14);
             audioStatusText.Foreground = Brush("#cfe2f5");
             controls.Children.Add(audioStatusText);
@@ -282,9 +282,7 @@ namespace WindowBackRecorder
             controls.Children.Add(cursorToggle);
 
             listenToggle = CreateToggle("내 스피커로 듣기", false);
-            listenToggle.Checked += delegate { SetMonitoring(true); };
-            listenToggle.Unchecked += delegate { SetMonitoring(false); };
-            controls.Children.Add(listenToggle);
+            listenToggle.Visibility = Visibility.Collapsed;
 
             var buttonGrid = new Grid { Margin = new Thickness(0, 18, 0, 14) };
             buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -570,6 +568,8 @@ namespace WindowBackRecorder
                 builder.Append(info.Title);
                 builder.Append('|');
                 builder.Append(info.ProcessName);
+                builder.Append('|');
+                builder.Append(info.ProcessId.ToString(CultureInfo.InvariantCulture));
                 builder.Append(';');
             }
             return builder.ToString();
@@ -580,11 +580,11 @@ namespace WindowBackRecorder
             bool available = IsAudioCaptureAvailable();
             if (audioStatusText != null)
             {
-                audioStatusText.Text = available ? "기본 출력 소리 자동 녹음" : "소리 녹음 준비 안 됨";
+                audioStatusText.Text = available ? "선택한 앱 소리만 자동 녹음" : "소리 녹음 준비 안 됨";
                 audioStatusText.Foreground = available ? Brush("#cfe2f5") : Brush("#ffb7c3");
             }
 
-            AppendLog(available ? "소리 녹음: 기본 출력 자동 사용" : "소리 녹음 준비 안 됨");
+            AppendLog(available ? "소리 녹음: 선택한 앱 우선 사용" : "소리 녹음 준비 안 됨");
         }
 
         private void OnWindowSelected(object sender, SelectionChangedEventArgs e)
@@ -639,7 +639,7 @@ namespace WindowBackRecorder
                 ffmpegProcess = StartFfmpegCapture(selectedWindow, videoPath, (int)fpsSlider.Value, cursorToggle.IsChecked == true, !hasLoopback);
                 if (hasLoopback)
                 {
-                    audioProcess = StartLoopbackAudio(audioPath, null, listenToggle.IsChecked == true);
+                    audioProcess = StartTargetAudio(audioPath, selectedWindow.ProcessId);
                 }
 
                 activeRecording = new RecordingState
@@ -746,6 +746,40 @@ namespace WindowBackRecorder
             if (process.WaitForExit(900))
             {
                 throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows 기본 출력 장치와 녹화할 앱의 음소거 상태를 확인해주세요.");
+            }
+            return process;
+        }
+
+        private Process StartTargetAudio(string audioPath, int processId)
+        {
+            string fileName;
+            var args = new List<string>();
+            string helperPath = GetProcessAudioHelperPath();
+            if (!string.IsNullOrEmpty(helperPath))
+            {
+                fileName = helperPath;
+            }
+            else
+            {
+                string script = Path.Combine(supportDir, "process_audio_recorder.py");
+                if (!File.Exists(script)) script = Path.Combine(appDir, "process_audio_recorder.py");
+                if (!File.Exists(script))
+                {
+                    AppendLog("선택한 앱 소리 녹음 helper가 없어 PC 전체 소리 녹음으로 대신합니다.");
+                    return StartLoopbackAudio(audioPath, null, false);
+                }
+                fileName = "python";
+                args.Add(script);
+            }
+
+            args.Add(audioPath);
+            args.Add("--pid");
+            args.Add(processId.ToString(CultureInfo.InvariantCulture));
+
+            var process = StartProcess(fileName, args, "[소리] ");
+            if (process.WaitForExit(900))
+            {
+                throw new InvalidOperationException("선택한 앱 소리 녹음이 바로 종료됐어요. 앱에서 실제로 소리가 나오는지 확인해주세요.");
             }
             return process;
         }
@@ -1120,6 +1154,14 @@ namespace WindowBackRecorder
 
         private bool IsAudioCaptureAvailable()
         {
+            if (!string.IsNullOrEmpty(GetProcessAudioHelperPath())) return true;
+
+            string processScript = Path.Combine(supportDir, "process_audio_recorder.py");
+            if (File.Exists(processScript)) return true;
+
+            processScript = Path.Combine(appDir, "process_audio_recorder.py");
+            if (File.Exists(processScript)) return true;
+
             if (!string.IsNullOrEmpty(GetAudioHelperPath())) return true;
 
             string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
@@ -1266,6 +1308,17 @@ namespace WindowBackRecorder
             return null;
         }
 
+        private string GetProcessAudioHelperPath()
+        {
+            string bundled = Path.Combine(supportDir, "bin", "process_audio_recorder.exe");
+            if (File.Exists(bundled)) return bundled;
+
+            bundled = Path.Combine(supportDir, "process_audio_recorder.exe");
+            if (File.Exists(bundled)) return bundled;
+
+            return null;
+        }
+
         private static void ApplyPythonUtf8Environment(ProcessStartInfo psi)
         {
             if (!string.Equals(Path.GetFileNameWithoutExtension(psi.FileName), "python", StringComparison.OrdinalIgnoreCase)) return;
@@ -1328,6 +1381,7 @@ namespace WindowBackRecorder
     public sealed class WindowInfo
     {
         public IntPtr Handle { get; set; }
+        public int ProcessId { get; set; }
         public string Title { get; set; }
         public string ProcessName { get; set; }
         public IntRect Bounds { get; set; }
@@ -1373,6 +1427,7 @@ namespace WindowBackRecorder
                 windows.Add(new WindowInfo
                 {
                     Handle = hwnd,
+                    ProcessId = (int)pid,
                     Title = title,
                     ProcessName = processName,
                     Bounds = bounds

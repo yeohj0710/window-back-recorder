@@ -3,3 +3,4 @@ soundcard>=0.4.6
 pywin32>=306
 psutil>=5.9
 Pillow>=10
+process-audio-capture==1.0.0

@@ -927,10 +927,10 @@ namespace WindowBackRecorder
 
         private void OpenUserGuide()
         {
-            string guidePath = Path.Combine(supportDir, "사용설명서.html");
+            string guidePath = Path.Combine(appDir, "사용설명서.html");
             if (!File.Exists(guidePath))
             {
-                guidePath = Path.Combine(appDir, "사용설명서.html");
+                guidePath = Path.Combine(supportDir, "사용설명서.html");
             }
 
             if (!File.Exists(guidePath))
@@ -1001,7 +1001,9 @@ namespace WindowBackRecorder
             {
                 videos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             }
-            string fallback = Path.Combine(videos, DefaultRecordingsFolderName);
+            string fallback = GetDefaultRecordingsPath(videos);
+            string previousDefault = Path.Combine(videos, DefaultRecordingsFolderName);
+            string oldDefault = Path.Combine(videos, OldDefaultRecordingsFolderName);
             string selectedPath = fallback;
             try
             {
@@ -1012,9 +1014,7 @@ namespace WindowBackRecorder
                     if (dict.TryGetValue("RecordingsDir", out value) && value != null)
                     {
                         string savedPath = value.ToString();
-                        if (!string.IsNullOrWhiteSpace(savedPath) &&
-                            !savedPath.EndsWith(Path.DirectorySeparatorChar + OldDefaultRecordingsFolderName, StringComparison.OrdinalIgnoreCase) &&
-                            !savedPath.EndsWith(Path.AltDirectorySeparatorChar + OldDefaultRecordingsFolderName, StringComparison.OrdinalIgnoreCase))
+                        if (!string.IsNullOrWhiteSpace(savedPath) && !IsSamePath(savedPath, previousDefault) && !IsSamePath(savedPath, oldDefault))
                         {
                             selectedPath = savedPath;
                         }
@@ -1025,6 +1025,30 @@ namespace WindowBackRecorder
 
             saveFolderBox.Text = selectedPath;
             try { Directory.CreateDirectory(selectedPath); } catch { }
+        }
+
+        private string GetDefaultRecordingsPath(string videosPath)
+        {
+            if (!string.Equals(supportDir, appDir, StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.Combine(appDir, DefaultRecordingsFolderName);
+            }
+
+            return Path.Combine(videosPath, DefaultRecordingsFolderName);
+        }
+
+        private static bool IsSamePath(string a, string b)
+        {
+            try
+            {
+                return string.Equals(Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         private void SaveSettings(string saveDir)

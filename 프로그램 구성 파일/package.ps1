@@ -13,7 +13,7 @@ $appName = -join @(
     [char]0x0020,
     [char]0xD504, [char]0xB85C, [char]0xADF8, [char]0xB7A8
 )
-$supportFolderName = "$([char]0xB0B4)$([char]0xBD80)$([char]0xD30C)$([char]0xC77C)"
+$supportFolderName = "$([char]0xD504)$([char]0xB85C)$([char]0xADF8)$([char]0xB7A8) $([char]0xAD6C)$([char]0xC131) $([char]0xD30C)$([char]0xC77C)"
 $guideName = "$([char]0xC0AC)$([char]0xC6A9)$([char]0xC124)$([char]0xBA85)$([char]0xC11C).html"
 $recordingsFolderName = "$([char]0xB179)$([char]0xD654) $([char]0xC644)$([char]0xB8CC)$([char]0xB41C) $([char]0xB3D9)$([char]0xC601)$([char]0xC0C1)"
 $exeName = "$appName.exe"

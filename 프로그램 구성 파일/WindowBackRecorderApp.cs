@@ -60,7 +60,7 @@ namespace WindowBackRecorder
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
 
-        private const string SupportFolderName = "내부파일";
+        private const string SupportFolderName = "프로그램 구성 파일";
         private const string NoAudioLabel = "소리 없이 녹화";
         private const string DeveloperLabel = "developed by yeohj0710";
         private const string DefaultRecordingsFolderName = "녹화 완료된 동영상";

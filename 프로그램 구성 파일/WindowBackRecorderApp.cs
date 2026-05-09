@@ -282,6 +282,11 @@ namespace WindowBackRecorder
             audioWarningText.TextWrapping = TextWrapping.Wrap;
             controls.Children.Add(audioWarningText);
 
+            var silentHelpButton = CreateButton("무음 녹화 도움", OpenSilentRecordingHelp, "#13202b", "#263546");
+            silentHelpButton.Height = 34;
+            silentHelpButton.Margin = new Thickness(0, 0, 0, 14);
+            controls.Children.Add(silentHelpButton);
+
             controls.Children.Add(FormLabel("화면 부드러움"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };
             fpsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -1229,6 +1234,22 @@ namespace WindowBackRecorder
         private void OpenSoundMixer()
         {
             Process.Start(new ProcessStartInfo("ms-settings:apps-volume") { UseShellExecute = true });
+        }
+
+        private void OpenSilentRecordingHelp()
+        {
+            string message =
+                "소리를 끄는 대신 출력 장치를 다른 곳으로 빼는 방식입니다.\n\n" +
+                "1. 녹화할 앱에서 소리가 실제로 나오게 둡니다.\n" +
+                "2. Windows 앱별 볼륨 설정에서 그 앱의 출력 장치를 안 쓰는 장치로 바꿉니다.\n" +
+                "   예: 모니터 오디오, 안 쓰는 이어폰, 가상 오디오 장치\n" +
+                "3. 앱이나 탭을 음소거하지는 마세요. 음소거하면 녹음도 조용해질 수 있어요.\n" +
+                "4. 짧게 테스트 녹화해서 파일에 소리가 들어가는지 확인합니다.";
+
+            System.Windows.MessageBox.Show(this, message, "무음 녹화 도움", MessageBoxButton.OK, MessageBoxImage.Information);
+            OpenSoundMixer();
+            SetStatus("앱별 볼륨 설정을 열었어요");
+            AppendLog("무음 녹화 도움: 앱별 출력 장치 설정 열기");
         }
 
         private void OpenUserGuide()

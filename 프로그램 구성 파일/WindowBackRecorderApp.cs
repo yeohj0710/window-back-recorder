@@ -1135,14 +1135,7 @@ namespace WindowBackRecorder
 
         private void LoadSettings()
         {
-            string videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
-            if (string.IsNullOrWhiteSpace(videos))
-            {
-                videos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            }
-            string fallback = GetDefaultRecordingsPath(videos);
-            string previousDefault = Path.Combine(videos, DefaultRecordingsFolderName);
-            string oldDefault = Path.Combine(videos, OldDefaultRecordingsFolderName);
+            string fallback = GetDefaultRecordingsPath();
             string selectedPath = fallback;
             try
             {
@@ -1153,7 +1146,7 @@ namespace WindowBackRecorder
                     if (dict.TryGetValue("RecordingsDir", out value) && value != null)
                     {
                         string savedPath = value.ToString();
-                        if (!string.IsNullOrWhiteSpace(savedPath) && !IsSamePath(savedPath, previousDefault) && !IsSamePath(savedPath, oldDefault))
+                        if (!string.IsNullOrWhiteSpace(savedPath) && !IsLegacyDefaultPath(savedPath))
                         {
                             selectedPath = savedPath;
                         }
@@ -1166,14 +1159,22 @@ namespace WindowBackRecorder
             try { Directory.CreateDirectory(selectedPath); } catch { }
         }
 
-        private string GetDefaultRecordingsPath(string videosPath)
+        private string GetDefaultRecordingsPath()
         {
-            if (!string.Equals(supportDir, appDir, StringComparison.OrdinalIgnoreCase))
-            {
-                return Path.Combine(appDir, DefaultRecordingsFolderName);
-            }
+            return Path.Combine(appDir, DefaultRecordingsFolderName);
+        }
 
-            return Path.Combine(videosPath, DefaultRecordingsFolderName);
+        private bool IsLegacyDefaultPath(string path)
+        {
+            string videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+            string documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+
+            return IsSamePath(path, Path.Combine(videos, DefaultRecordingsFolderName))
+                || IsSamePath(path, Path.Combine(videos, OldDefaultRecordingsFolderName))
+                || IsSamePath(path, Path.Combine(documents, DefaultRecordingsFolderName))
+                || IsSamePath(path, Path.Combine(documents, OldDefaultRecordingsFolderName))
+                || IsSamePath(path, desktop);
         }
 
         private static bool IsSamePath(string a, string b)

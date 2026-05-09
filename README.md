@@ -29,14 +29,41 @@ python -m pip install -r requirements.txt
 
 Double-click:
 
+```text
+WindowBackRecorder.exe
+```
+
+The `.cmd` file is just a convenience launcher:
+
+Double-click:
+
 ```bat
 Start-WindowBackRecorder.cmd
 ```
 
-Or from PowerShell:
+If you need the legacy PowerShell UI:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\WindowBackRecorder.ps1
+```
+
+## Use
+
+1. Open the app.
+2. Select the window you want to record.
+3. Choose a save folder.
+4. Choose an audio source. For app/system audio, pick a `Loopback:` device.
+5. Press `Start`.
+6. Press `View off` to push the target window behind your work.
+7. Toggle `Listen to captured audio` whenever you want to hear or stop hearing the captured audio.
+8. Press `Stop`. The final `.mp4` is written with a date/time filename.
+
+For silent-but-recording audio, route the target app to an unused or virtual output device in Windows Sound Mixer, select that same device's `Loopback:` source here, and keep `Listen to captured audio` off until you want to monitor it.
+
+## Build
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
 ## Important limits

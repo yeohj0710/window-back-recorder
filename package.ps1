@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
 $dist = Join-Path $repo "dist"
+$releaseDir = Join-Path $repo "$([char]0xBC30)$([char]0xD3EC)$([char]0xC6A9)"
 $appName = -join @(
     [char]0xBC31, [char]0xADF8, [char]0xB77C, [char]0xC6B4, [char]0xB4DC,
     [char]0x0020,
@@ -15,12 +16,14 @@ $supportFolderName = "$appName`_$([char]0xC790)$([char]0xB8CC)"
 $guideName = "$([char]0xC0AC)$([char]0xC6A9)$([char]0xC124)$([char]0xBA85)$([char]0xC11C).html"
 $recordingsFolderName = "$([char]0xB179)$([char]0xD654) $([char]0xC644)$([char]0xB8CC)$([char]0xB41C) $([char]0xB3D9)$([char]0xC601)$([char]0xC0C1)"
 $exeName = "$appName.exe"
+$installerName = "$appName $([char]0xC124)$([char]0xCE58).exe"
 $zipName = "$appName.zip"
 $stageRoot = Join-Path $dist $appName
 $support = Join-Path $stageRoot $supportFolderName
 $bin = Join-Path $support "bin"
 $recordings = Join-Path $stageRoot $recordingsFolderName
 $zipPath = Join-Path $dist $zipName
+$installerPath = Join-Path $dist $installerName
 $helperBuild = Join-Path $repo "build\loopback_audio_recorder"
 $helperDist = Join-Path $helperBuild "dist"
 $helperWork = Join-Path $helperBuild "work"
@@ -114,4 +117,43 @@ finally {
     $archive.Dispose()
 }
 
+$csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+if (-not (Test-Path $csc)) {
+    $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework\v4.0.30319\csc.exe"
+}
+if (-not (Test-Path $csc)) {
+    throw "Could not find csc.exe from .NET Framework."
+}
+
+$frameworkDir = Split-Path -Parent $csc
+$installerSource = Join-Path $repo "InstallerApp.cs"
+$icon = Join-Path $repo "app.ico"
+
+if (Test-Path $installerPath) {
+    Remove-Item -LiteralPath $installerPath -Force
+}
+
+& $csc `
+    "/nologo" `
+    "/target:winexe" `
+    "/out:$installerPath" `
+    "/win32icon:$icon" `
+    "/resource:$zipPath,Payload.Zip" `
+    "/reference:System.Windows.Forms.dll" `
+    "/reference:System.Drawing.dll" `
+    "/reference:$(Join-Path $frameworkDir 'System.IO.Compression.dll')" `
+    "$installerSource"
+
+if ($LASTEXITCODE -ne 0) {
+    throw "Installer build failed with exit code $LASTEXITCODE"
+}
+
+if (Test-Path $releaseDir) {
+    Remove-Item -LiteralPath $releaseDir -Recurse -Force
+}
+New-Item -ItemType Directory -Path $releaseDir | Out-Null
+Copy-Item -LiteralPath $installerPath -Destination (Join-Path $releaseDir $installerName) -Force
+
 Write-Output "Created $zipPath"
+Write-Output "Created $installerPath"
+Write-Output "Copied installer to $releaseDir"

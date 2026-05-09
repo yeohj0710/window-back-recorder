@@ -3,6 +3,7 @@ settings.json
 __pycache__/
 *.py[cod]
 build/
+배포용/
 *.video.mkv
 *.audio.wav
 *.log

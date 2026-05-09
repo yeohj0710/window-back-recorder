@@ -272,7 +272,7 @@ namespace WindowBackRecorder
             cursorToggle = CreateToggle("마우스 커서도 녹화", true);
             controls.Children.Add(cursorToggle);
 
-            listenToggle = CreateToggle("녹음되는 소리 듣기", false);
+            listenToggle = CreateToggle("내 스피커로 듣기", false);
             listenToggle.Checked += delegate { SetMonitoring(true); };
             listenToggle.Unchecked += delegate { SetMonitoring(false); };
             controls.Children.Add(listenToggle);

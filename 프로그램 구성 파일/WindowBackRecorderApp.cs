@@ -449,9 +449,7 @@ namespace WindowBackRecorder
                 IsChecked = isChecked,
                 Margin = new Thickness(0, 0, 0, 8),
                 Height = 34,
-                Foreground = Brush("#dce5ee"),
-                Background = Brush("#111a23"),
-                BorderBrush = Brush("#263545"),
+                Style = CreateToggleStyle(),
                 Cursor = System.Windows.Input.Cursors.Hand
             };
             return toggle;
@@ -472,14 +470,90 @@ namespace WindowBackRecorder
                 Content = text,
                 Padding = new Thickness(10, 7, 10, 7),
                 Margin = new Thickness(0),
-                Background = Brush(background),
-                Foreground = Brush("#f5f7fa"),
-                BorderBrush = Brush(hover),
                 BorderThickness = new Thickness(1),
+                Style = CreateButtonStyle(background, hover),
                 Cursor = System.Windows.Input.Cursors.Hand
             };
             button.Click += delegate { action(); };
             return button;
+        }
+
+        private Style CreateButtonStyle(string background, string hover)
+        {
+            var style = new Style(typeof(Button));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush(background)));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#f5f7fa")));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(hover)));
+            style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(Control.TemplateProperty, CreateButtonTemplate()));
+
+            var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+            over.Setters.Add(new Setter(Control.BackgroundProperty, Brush(hover)));
+            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            style.Triggers.Add(over);
+
+            var pressed = new Trigger { Property = ButtonBase.IsPressedProperty, Value = true };
+            pressed.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#0f2438")));
+            pressed.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            style.Triggers.Add(pressed);
+
+            var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+            disabled.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#18222c")));
+            disabled.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#9fb1c4")));
+            disabled.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2b3a49")));
+            disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 1.0));
+            style.Triggers.Add(disabled);
+
+            return style;
+        }
+
+        private Style CreateToggleStyle()
+        {
+            var style = new Style(typeof(ToggleButton));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#111a23")));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#dce5ee")));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#263545")));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(Control.TemplateProperty, CreateButtonTemplate()));
+
+            var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
+            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#163044")));
+            checkedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#f0fbff")));
+            checkedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#4aa3d8")));
+            style.Triggers.Add(checkedTrigger);
+
+            var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+            over.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#1b2b3a")));
+            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            style.Triggers.Add(over);
+
+            var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+            disabled.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#18222c")));
+            disabled.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#9fb1c4")));
+            disabled.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2b3a49")));
+            disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 1.0));
+            style.Triggers.Add(disabled);
+
+            return style;
+        }
+
+        private ControlTemplate CreateButtonTemplate()
+        {
+            var border = new FrameworkElementFactory(typeof(Border));
+            border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+            border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            border.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+            var content = new FrameworkElementFactory(typeof(ContentPresenter));
+            content.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            content.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            content.SetValue(ContentPresenter.MarginProperty, new TemplateBindingExtension(Control.PaddingProperty));
+            content.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+            border.AppendChild(content);
+
+            return new ControlTemplate(typeof(ButtonBase)) { VisualTree = border };
         }
 
         private FrameworkElement Spacer(double width, double height)

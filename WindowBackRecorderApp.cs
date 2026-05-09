@@ -60,8 +60,9 @@ namespace WindowBackRecorder
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
 
-        private const string SupportFolderName = "창 뒤 녹화기_자료";
+        private const string SupportFolderName = "백그라운드 영상 녹화 프로그램_자료";
         private const string NoAudioLabel = "소리 없이 녹화";
+        private const string DeveloperLabel = "developed by yeohj0710";
 
         public MainWindow()
         {
@@ -70,7 +71,7 @@ namespace WindowBackRecorder
             supportDir = Directory.Exists(packagedSupportDir) ? packagedSupportDir : appDir;
             settingsPath = Path.Combine(supportDir, "settings.json");
 
-            Title = "창 뒤 녹화기";
+            Title = "백그라운드 영상 녹화 프로그램";
             string iconPath = Path.Combine(supportDir, "app.ico");
             if (File.Exists(iconPath))
             {
@@ -124,14 +125,23 @@ namespace WindowBackRecorder
             var titleStack = new StackPanel { Orientation = Orientation.Vertical };
             headerGrid.Children.Add(titleStack);
 
+            var titleRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            titleStack.Children.Add(titleRow);
+
             var title = new TextBlock
             {
-                Text = "창 뒤 녹화기",
+                Text = "백그라운드 영상 녹화 프로그램",
                 FontSize = 25,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Brush("#f5f7fa")
+                Foreground = Brush("#f5f7fa"),
+                VerticalAlignment = VerticalAlignment.Center
             };
-            titleStack.Children.Add(title);
+            titleRow.Children.Add(title);
+            titleRow.Children.Add(CreateDeveloperBadge());
 
             statusText = new TextBlock
             {
@@ -331,6 +341,28 @@ namespace WindowBackRecorder
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(16)
+            };
+        }
+
+        private Border CreateDeveloperBadge()
+        {
+            return new Border
+            {
+                Margin = new Thickness(14, 3, 0, 0),
+                Padding = new Thickness(10, 4, 10, 5),
+                Background = Brush("#11272b"),
+                BorderBrush = Brush("#2a7b72"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(12),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = DeveloperLabel,
+                    FontSize = 11,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brush("#87eadc"),
+                    VerticalAlignment = VerticalAlignment.Center
+                }
             };
         }
 
@@ -865,7 +897,7 @@ namespace WindowBackRecorder
         {
             if ((ffmpegProcess != null && !ffmpegProcess.HasExited) || (audioProcess != null && !audioProcess.HasExited))
             {
-                var result = System.Windows.MessageBox.Show(this, "녹화가 진행 중입니다. 녹화를 끝내고 닫을까요?", "창 뒤 녹화기", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                var result = System.Windows.MessageBox.Show(this, "녹화가 진행 중입니다. 녹화를 끝내고 닫을까요?", "백그라운드 영상 녹화 프로그램", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (result != MessageBoxResult.Yes)
                 {
                     e.Cancel = true;
@@ -909,7 +941,7 @@ namespace WindowBackRecorder
             {
                 videos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             }
-            string fallback = Path.Combine(videos, "창 뒤 녹화기");
+            string fallback = Path.Combine(videos, "녹화 완료 영상");
             saveFolderBox.Text = fallback;
             try
             {

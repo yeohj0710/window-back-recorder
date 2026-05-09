@@ -64,10 +64,10 @@ namespace WindowBackRecorder
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
         private bool isStopping;
-        private bool isPausing;
-        private bool isPaused;
         private bool targetWindowHidden;
         private bool silentPlaybackApplied;
+        private bool processAudioSupportChecked;
+        private bool processAudioSupported;
         private readonly List<AudioSessionSnapshot> audioSessionSnapshots = new List<AudioSessionSnapshot>();
         private int busyTick;
         private int logLineCount;
@@ -909,14 +909,23 @@ namespace WindowBackRecorder
 
         private void RefreshAudioSources()
         {
-            bool available = IsAudioCaptureAvailable();
+            AudioCaptureMode mode = ResolveAudioCaptureMode();
+            bool available = mode != AudioCaptureMode.None;
             if (audioStatusText != null)
             {
-                audioStatusText.Text = available ? "선택한 앱 소리만 자동 녹음" : "소리 녹음 준비 안 됨";
+                audioStatusText.Text = mode == AudioCaptureMode.Process
+                    ? "선택한 앱 소리만 자동 녹음"
+                    : mode == AudioCaptureMode.SystemLoopback
+                        ? "기본 출력 소리 자동 녹음"
+                        : "소리 녹음 준비 안 됨";
                 audioStatusText.Foreground = available ? Brush("#1d4ed8") : Brush("#be123c");
             }
 
-            AppendLog(available ? "소리 녹음: 선택한 앱 우선 사용" : "소리 녹음 준비 안 됨");
+            AppendLog(mode == AudioCaptureMode.Process
+                ? "소리 녹음: 선택한 앱 우선 사용"
+                : mode == AudioCaptureMode.SystemLoopback
+                    ? "소리 녹음: 기본 출력 소리 사용"
+                    : "소리 녹음 준비 안 됨");
         }
 
         private void OnWindowSelected(object sender, SelectionChangedEventArgs e)
@@ -932,21 +941,13 @@ namespace WindowBackRecorder
 
         private void ToggleRecordingAction()
         {
-            if (isPausing) return;
             if (activeRecording == null)
             {
                 StartRecording();
                 return;
             }
 
-            if (isPaused)
-            {
-                ResumeRecording();
-            }
-            else
-            {
-                PauseRecording();
-            }
+            SetStatus("녹화 중입니다");
         }
 
         private void StartRecording()
@@ -976,10 +977,14 @@ namespace WindowBackRecorder
             if (!Directory.Exists(saveDir)) Directory.CreateDirectory(saveDir);
             SaveSettings(saveDir);
 
-            bool wantsAudio = IsAudioCaptureAvailable();
-            if (!wantsAudio)
+            AudioCaptureMode audioMode = ResolveAudioCaptureMode();
+            if (audioMode == AudioCaptureMode.None)
             {
                 AppendLog("소리 녹음 준비 안 됨. 화면만 녹화합니다.");
+            }
+            else if (audioMode == AudioCaptureMode.SystemLoopback)
+            {
+                AppendLog("이 PC에서는 앱별 소리 캡처가 지원되지 않아 기본 출력 소리로 녹음합니다.");
             }
 
             string baseName = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
@@ -995,7 +1000,7 @@ namespace WindowBackRecorder
                     Target = selectedWindow,
                     Fps = (int)fpsSlider.Value,
                     DrawCursor = true,
-                    WantsAudio = wantsAudio,
+                    AudioMode = audioMode,
                     BoostAudio = silentPlaybackToggle.IsChecked == true,
                     AudioGain = silentPlaybackToggle.IsChecked == true ? ReducedPlaybackGain : 1.0
                 };
@@ -1004,9 +1009,8 @@ namespace WindowBackRecorder
                 StartRecordingSegment(recording);
                 ApplySilentPlaybackIfRecording();
 
-                isPaused = false;
-                startButton.Content = "일시정지";
-                startButton.IsEnabled = true;
+                startButton.Content = "녹화 중";
+                startButton.IsEnabled = false;
                 stopButton.IsEnabled = true;
                 saveFolderBox.IsEnabled = false;
                 windowList.IsEnabled = false;
@@ -1024,51 +1028,6 @@ namespace WindowBackRecorder
             }
         }
 
-        private void PauseRecording()
-        {
-            if (activeRecording == null || isStopping) return;
-            isPausing = true;
-            startButton.IsEnabled = false;
-            stopButton.IsEnabled = false;
-            SetStatus("일시정지 처리 중...");
-            AppendLog("녹화를 일시정지하는 중...");
-
-            ThreadPool.QueueUserWorkItem(delegate
-            {
-                StopCurrentSegment();
-                RestorePlaybackVolume();
-                Dispatcher.BeginInvoke(new Action(delegate
-                {
-                    isPausing = false;
-                    isPaused = true;
-                    startButton.Content = "다시 시작";
-                    startButton.IsEnabled = true;
-                    stopButton.IsEnabled = true;
-                    SetStatus("일시정지");
-                    AppendLog("녹화를 일시정지했어요");
-                }));
-            });
-        }
-
-        private void ResumeRecording()
-        {
-            if (activeRecording == null || isStopping) return;
-            try
-            {
-                StartRecordingSegment(activeRecording);
-                ApplySilentPlaybackIfRecording();
-                isPaused = false;
-                startButton.Content = "일시정지";
-                SetStatus("녹화 중");
-                AppendLog("녹화를 다시 시작했어요");
-            }
-            catch (Exception ex)
-            {
-                AppendLog("녹화를 다시 시작하지 못했어요: " + ex.Message);
-                SetStatus("다시 시작 실패");
-            }
-        }
-
         private void StartRecordingSegment(RecordingState recording)
         {
             recording.SegmentIndex++;
@@ -1076,24 +1035,50 @@ namespace WindowBackRecorder
             string stem = Path.GetFileNameWithoutExtension(recording.FinalPath);
             string segmentBase = Path.Combine(saveDir, stem + ".part" + recording.SegmentIndex.ToString("000", CultureInfo.InvariantCulture));
             string videoPath = segmentBase + ".video.mkv";
-            string audioPath = recording.WantsAudio ? segmentBase + ".audio.wav" : null;
+            string audioPath = recording.AudioMode != AudioCaptureMode.None ? segmentBase + ".audio.wav" : null;
 
             ffmpegProcess = StartFfmpegCapture(recording.Target, videoPath, recording.Fps, recording.DrawCursor, false);
             bool audioStarted = false;
-            if (recording.WantsAudio)
+            if (recording.AudioMode != AudioCaptureMode.None)
             {
                 try
                 {
-                    audioProcess = StartTargetAudio(audioPath, recording.Target.ProcessId);
+                    if (recording.AudioMode == AudioCaptureMode.Process)
+                    {
+                        audioProcess = StartTargetAudio(audioPath, recording.Target.ProcessId);
+                    }
+                    else
+                    {
+                        audioProcess = StartLoopbackAudio(audioPath, null, false);
+                    }
                     audioStarted = true;
                     recording.HasLoopbackAudio = true;
                 }
                 catch (Exception audioEx)
                 {
-                    audioProcess = null;
                     AppendLog("선택한 앱 소리 녹음 실패: " + audioEx.Message);
-                    AppendLog("다른 창 소리가 섞이지 않도록 PC 전체 소리 녹음은 사용하지 않습니다.");
-                    AppendLog("이 구간은 소리 없이 화면만 녹화합니다.");
+                    if (recording.AudioMode == AudioCaptureMode.Process && IsSystemAudioCaptureAvailable())
+                    {
+                        try
+                        {
+                            recording.AudioMode = AudioCaptureMode.SystemLoopback;
+                            audioProcess = StartLoopbackAudio(audioPath, null, false);
+                            audioStarted = true;
+                            recording.HasLoopbackAudio = true;
+                            AppendLog("기본 출력 소리 녹음으로 대신 저장합니다.");
+                        }
+                        catch (Exception fallbackEx)
+                        {
+                            audioProcess = null;
+                            AppendLog("기본 출력 소리 녹음도 실패: " + fallbackEx.Message);
+                            AppendLog("이 구간은 소리 없이 화면만 녹화합니다.");
+                        }
+                    }
+                    else
+                    {
+                        audioProcess = null;
+                        AppendLog("이 구간은 소리 없이 화면만 녹화합니다.");
+                    }
                 }
             }
 
@@ -1284,7 +1269,6 @@ namespace WindowBackRecorder
             startButton.IsEnabled = false;
             stopButton.IsEnabled = false;
             stopButton.Content = "처리 중";
-            isPaused = false;
             startButton.Content = "녹화 시작";
             saveFolderBox.IsEnabled = true;
             if (targetWindowHidden) RestoreTargetWindowFromHidden();
@@ -1676,7 +1660,7 @@ namespace WindowBackRecorder
 
         private void ApplySilentPlaybackIfRecording()
         {
-            if (activeRecording == null || !activeRecording.HasLoopbackAudio || silentPlaybackToggle == null || silentPlaybackToggle.IsChecked != true)
+            if (activeRecording == null || silentPlaybackToggle == null || silentPlaybackToggle.IsChecked != true)
             {
                 return;
             }
@@ -1811,7 +1795,7 @@ namespace WindowBackRecorder
                 RefreshWindows(true);
             }
 
-            if (activeRecording != null && !isPaused && silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true)
+            if (activeRecording != null && silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true)
             {
                 ApplySilentPlaybackIfRecording();
             }
@@ -1942,7 +1926,19 @@ namespace WindowBackRecorder
             catch { }
         }
 
+        private AudioCaptureMode ResolveAudioCaptureMode()
+        {
+            if (IsProcessAudioCaptureSupported()) return AudioCaptureMode.Process;
+            if (IsSystemAudioCaptureAvailable()) return AudioCaptureMode.SystemLoopback;
+            return AudioCaptureMode.None;
+        }
+
         private bool IsAudioCaptureAvailable()
+        {
+            return HasProcessAudioRecorder() || IsSystemAudioCaptureAvailable();
+        }
+
+        private bool HasProcessAudioRecorder()
         {
             if (!string.IsNullOrEmpty(GetProcessAudioHelperPath())) return true;
 
@@ -1950,9 +1946,103 @@ namespace WindowBackRecorder
             if (File.Exists(processScript)) return true;
 
             processScript = Path.Combine(appDir, "process_audio_recorder.py");
-            if (File.Exists(processScript)) return true;
+            return File.Exists(processScript);
+        }
 
-            return false;
+        private bool IsSystemAudioCaptureAvailable()
+        {
+            if (!string.IsNullOrEmpty(GetAudioHelperPath())) return true;
+
+            string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
+            if (File.Exists(script)) return true;
+
+            script = Path.Combine(appDir, "loopback_audio_recorder.py");
+            return File.Exists(script);
+        }
+
+        private bool IsProcessAudioCaptureSupported()
+        {
+            if (processAudioSupportChecked) return processAudioSupported;
+            processAudioSupportChecked = true;
+            processAudioSupported = false;
+
+            if (!HasProcessAudioRecorder()) return false;
+
+            string tempPath = Path.Combine(Path.GetTempPath(), "window-back-recorder-process-audio-test-" + Guid.NewGuid().ToString("N") + ".wav");
+            Process proc = null;
+            try
+            {
+                proc = StartProcessAudioProbe(tempPath);
+                if (proc.WaitForExit(1200))
+                {
+                    processAudioSupported = false;
+                    return false;
+                }
+
+                processAudioSupported = true;
+                try { proc.StandardInput.WriteLine("q"); } catch { }
+                if (!proc.WaitForExit(1500))
+                {
+                    try { proc.Kill(); } catch { }
+                }
+                return true;
+            }
+            catch
+            {
+                processAudioSupported = false;
+                return false;
+            }
+            finally
+            {
+                try
+                {
+                    if (proc != null && !proc.HasExited) proc.Kill();
+                }
+                catch { }
+                TryDelete(tempPath);
+            }
+        }
+
+        private Process StartProcessAudioProbe(string outputPath)
+        {
+            string fileName;
+            var args = new List<string>();
+            string helperPath = GetProcessAudioHelperPath();
+            if (!string.IsNullOrEmpty(helperPath))
+            {
+                fileName = helperPath;
+            }
+            else
+            {
+                string script = Path.Combine(supportDir, "process_audio_recorder.py");
+                if (!File.Exists(script)) script = Path.Combine(appDir, "process_audio_recorder.py");
+                fileName = "python";
+                args.Add(script);
+            }
+
+            args.Add(outputPath);
+            args.Add("--pid");
+            args.Add(Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture));
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = JoinArgs(args),
+                WorkingDirectory = supportDir,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            psi.StandardOutputEncoding = Encoding.UTF8;
+            psi.StandardErrorEncoding = Encoding.UTF8;
+            ApplyPythonUtf8Environment(psi);
+
+            var process = new Process();
+            process.StartInfo = psi;
+            if (!process.Start()) throw new InvalidOperationException("process audio probe start failed");
+            return process;
         }
 
         private List<AudioSourceInfo> GetLoopbackSources()
@@ -2181,6 +2271,13 @@ namespace WindowBackRecorder
         }
     }
 
+    public enum AudioCaptureMode
+    {
+        None,
+        Process,
+        SystemLoopback
+    }
+
     public sealed class RecordingState
     {
         public string FinalPath;
@@ -2188,7 +2285,7 @@ namespace WindowBackRecorder
         public WindowInfo Target;
         public int Fps;
         public bool DrawCursor;
-        public bool WantsAudio;
+        public AudioCaptureMode AudioMode;
         public bool HasLoopbackAudio;
         public bool BoostAudio;
         public double AudioGain = 1.0;
@@ -2218,14 +2315,32 @@ namespace WindowBackRecorder
         public static List<AudioSessionSnapshot> LowerMatchingSessions(int processId, string processName, float volume, ISet<string> alreadyLowered)
         {
             var snapshots = new List<AudioSessionSnapshot>();
+            IMMDeviceEnumerator enumerator = null;
+
+            try
+            {
+                enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+                LowerMatchingSessionsForRole(enumerator, ERole.eConsole, processId, processName, volume, alreadyLowered, snapshots);
+                LowerMatchingSessionsForRole(enumerator, ERole.eMultimedia, processId, processName, volume, alreadyLowered, snapshots);
+                LowerMatchingSessionsForRole(enumerator, ERole.eCommunications, processId, processName, volume, alreadyLowered, snapshots);
+            }
+            finally
+            {
+                if (enumerator != null) Marshal.ReleaseComObject(enumerator);
+            }
+
+            return snapshots;
+        }
+
+        private static void LowerMatchingSessionsForRole(IMMDeviceEnumerator enumerator, ERole role, int processId, string processName, float volume, ISet<string> alreadyLowered, List<AudioSessionSnapshot> snapshots)
+        {
             IMMDevice device = null;
             IAudioSessionManager2 manager = null;
             IAudioSessionEnumerator sessions = null;
 
             try
             {
-                var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
-                Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, out device));
+                if (enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, role, out device) != 0 || device == null) return;
 
                 object managerObject;
                 Guid iid = AudioSessionManager2Guid;
@@ -2268,6 +2383,7 @@ namespace WindowBackRecorder
                             MasterVolume = originalVolume,
                             Muted = originalMute
                         });
+                        if (!string.IsNullOrEmpty(sessionInstanceId) && alreadyLowered != null) alreadyLowered.Add(sessionInstanceId);
 
                         Marshal.ThrowExceptionForHR(simpleVolume.SetMute(false, ref context));
                         Marshal.ThrowExceptionForHR(simpleVolume.SetMasterVolume(volume, ref context));
@@ -2278,14 +2394,13 @@ namespace WindowBackRecorder
                     }
                 }
             }
+            catch { }
             finally
             {
                 if (sessions != null) Marshal.ReleaseComObject(sessions);
                 if (manager != null) Marshal.ReleaseComObject(manager);
                 if (device != null) Marshal.ReleaseComObject(device);
             }
-
-            return snapshots;
         }
 
         public static void Restore(List<AudioSessionSnapshot> snapshots)
@@ -2588,12 +2703,6 @@ namespace WindowBackRecorder
 
         [DllImport("user32.dll")]
         public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
-
-        [DllImport("ntdll.dll")]
-        public static extern int NtSuspendProcess(IntPtr processHandle);
-
-        [DllImport("ntdll.dll")]
-        public static extern int NtResumeProcess(IntPtr processHandle);
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT

@@ -1143,10 +1143,11 @@ namespace WindowBackRecorder
                 {
                     var dict = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settingsPath, Encoding.UTF8));
                     object value;
+                    bool hasCurrentSettings = dict.ContainsKey("SettingsVersion");
                     if (dict.TryGetValue("RecordingsDir", out value) && value != null)
                     {
                         string savedPath = value.ToString();
-                        if (!string.IsNullOrWhiteSpace(savedPath) && !IsLegacyDefaultPath(savedPath))
+                        if (!string.IsNullOrWhiteSpace(savedPath) && (hasCurrentSettings || !IsLegacyDefaultPath(savedPath)))
                         {
                             selectedPath = savedPath;
                         }
@@ -1196,6 +1197,7 @@ namespace WindowBackRecorder
             try
             {
                 var dict = new Dictionary<string, object>();
+                dict["SettingsVersion"] = 2;
                 dict["RecordingsDir"] = saveDir;
                 File.WriteAllText(settingsPath, json.Serialize(dict), Encoding.UTF8);
             }

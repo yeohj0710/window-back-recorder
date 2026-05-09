@@ -79,11 +79,14 @@ namespace WindowBackRecorder
             {
                 Icon = BitmapFrame.Create(new Uri(iconPath, UriKind.Absolute));
             }
-            Width = 1180;
-            Height = 760;
-            MinWidth = 980;
+            var workArea = WinForms.Screen.PrimaryScreen.WorkingArea;
+            Width = Math.Min(880, Math.Max(760, workArea.Width - 160));
+            Height = Math.Min(740, Math.Max(640, workArea.Height - 80));
+            MinWidth = 760;
             MinHeight = 640;
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = workArea.Left + 40;
+            Top = workArea.Top + 40;
             Background = Brush("#0b0f14");
             FontFamily = new FontFamily("Segoe UI");
             Foreground = Brush("#e8edf2");
@@ -137,7 +140,7 @@ namespace WindowBackRecorder
             var title = new TextBlock
             {
                 Text = "백그라운드 영상 녹화 프로그램",
-                FontSize = 25,
+                FontSize = 23,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brush("#f5f7fa"),
                 VerticalAlignment = VerticalAlignment.Center
@@ -159,14 +162,14 @@ namespace WindowBackRecorder
             headerGrid.Children.Add(headerButtons);
 
             headerButtons.Children.Add(CreateButton("사용법", OpenUserGuide, "#16212b", "#263546"));
-            headerButtons.Children.Add(Spacer(10, 1));
+            headerButtons.Children.Add(Spacer(8, 1));
             headerButtons.Children.Add(CreateButton("소리 설정", OpenSoundMixer, "#16212b", "#263546"));
-            headerButtons.Children.Add(Spacer(10, 1));
+            headerButtons.Children.Add(Spacer(8, 1));
             headerButtons.Children.Add(CreateButton("새로고침", delegate { RefreshWindows(); RefreshAudioSources(); }, "#16212b", "#263546"));
 
-            var main = new Grid { Margin = new Thickness(20) };
+            var main = new Grid { Margin = new Thickness(12) };
             main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(360) });
+            main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(270) });
             Grid.SetRow(main, 1);
             root.Children.Add(main);
 
@@ -216,14 +219,13 @@ namespace WindowBackRecorder
             leftDock.Children.Add(windowList);
 
             var gridView = new GridView();
-            gridView.Columns.Add(CreateColumn("창 제목", "Title", 520));
-            gridView.Columns.Add(CreateColumn("프로그램", "ProcessName", 150));
-            gridView.Columns.Add(CreateColumn("크기", "SizeText", 110));
-            gridView.Columns.Add(CreateColumn("핸들", "HandleText", 110));
+            gridView.Columns.Add(CreateColumn("창 제목", "Title", 300));
+            gridView.Columns.Add(CreateColumn("프로그램", "ProcessName", 100));
+            gridView.Columns.Add(CreateColumn("크기", "SizeText", 82));
             windowList.View = gridView;
 
             var rightPanel = CreatePanel();
-            rightPanel.Margin = new Thickness(18, 0, 0, 0);
+            rightPanel.Margin = new Thickness(12, 0, 0, 0);
             Grid.SetColumn(rightPanel, 1);
             main.Children.Add(rightPanel);
 
@@ -235,7 +237,7 @@ namespace WindowBackRecorder
 
             var folderRow = new Grid { Margin = new Thickness(0, 4, 0, 14) };
             folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(54) });
             controls.Children.Add(folderRow);
 
             saveFolderBox = CreateTextBox();
@@ -243,7 +245,7 @@ namespace WindowBackRecorder
             folderRow.Children.Add(saveFolderBox);
 
             var browse = CreateSmallButton("변경", BrowseFolder);
-            browse.Margin = new Thickness(8, 0, 0, 0);
+            browse.Margin = new Thickness(6, 0, 0, 0);
             Grid.SetColumn(browse, 1);
             folderRow.Children.Add(browse);
 
@@ -283,7 +285,7 @@ namespace WindowBackRecorder
 
             var buttonGrid = new Grid { Margin = new Thickness(0, 18, 0, 14) };
             buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(12) });
+            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
             buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             controls.Children.Add(buttonGrid);
 
@@ -456,7 +458,7 @@ namespace WindowBackRecorder
             var button = new Button
             {
                 Content = text,
-                Padding = new Thickness(14, 7, 14, 7),
+                Padding = new Thickness(10, 7, 10, 7),
                 Margin = new Thickness(0),
                 Background = Brush(background),
                 Foreground = Brush("#f5f7fa"),
@@ -1281,10 +1283,10 @@ namespace WindowBackRecorder
 
     public sealed class WindowInfo
     {
-        public IntPtr Handle;
-        public string Title;
-        public string ProcessName;
-        public IntRect Bounds;
+        public IntPtr Handle { get; set; }
+        public string Title { get; set; }
+        public string ProcessName { get; set; }
+        public IntRect Bounds { get; set; }
 
         public string SizeText
         {

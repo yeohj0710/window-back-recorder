@@ -252,8 +252,8 @@ namespace WindowBackRecorder
             {
                 Margin = new Thickness(0, 4, 0, 14),
                 MinHeight = 34,
-                Background = Brush("#0d131a"),
-                Foreground = Brush("#e8edf2"),
+                Background = Brush("#f8fafc"),
+                Foreground = Brush("#17212b"),
                 BorderBrush = Brush("#263545"),
                 ItemContainerStyle = CreateComboItemStyle()
             };
@@ -475,21 +475,42 @@ namespace WindowBackRecorder
 
         private GridViewColumn CreateColumn(string header, string path, double width)
         {
+            var textBlock = new FrameworkElementFactory(typeof(TextBlock));
+            textBlock.SetBinding(TextBlock.TextProperty, new Binding(path));
+            textBlock.SetValue(TextBlock.ForegroundProperty, Brush("#e8f5ff"));
+            textBlock.SetValue(TextBlock.PaddingProperty, new Thickness(8, 0, 8, 0));
+            textBlock.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
+            textBlock.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
+
             return new GridViewColumn
             {
                 Header = header,
                 Width = width,
-                DisplayMemberBinding = new Binding(path)
+                CellTemplate = new DataTemplate { VisualTree = textBlock }
             };
         }
 
         private void StyleListView(ListView list)
         {
             var itemStyle = new Style(typeof(ListViewItem));
-            itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8, 7, 8, 7)));
-            itemStyle.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 0, 0, 2)));
+            itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0, 7, 0, 7)));
+            itemStyle.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 0, 0, 1)));
             itemStyle.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#0d131a")));
             itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#dfe7ef")));
+            itemStyle.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#0d131a")));
+            itemStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+
+            var selectedTrigger = new Trigger { Property = ListViewItem.IsSelectedProperty, Value = true };
+            selectedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#173a52")));
+            selectedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            selectedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#45b8e8")));
+            itemStyle.Triggers.Add(selectedTrigger);
+
+            var mouseOverTrigger = new Trigger { Property = ListViewItem.IsMouseOverProperty, Value = true };
+            mouseOverTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#132434")));
+            mouseOverTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2f5f7d")));
+            itemStyle.Triggers.Add(mouseOverTrigger);
+
             list.ItemContainerStyle = itemStyle;
         }
 

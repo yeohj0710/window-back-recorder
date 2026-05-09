@@ -12,6 +12,7 @@ $appName = -join @(
     [char]0xD504, [char]0xB85C, [char]0xADF8, [char]0xB7A8
 )
 $supportFolderName = "$appName`_$([char]0xC790)$([char]0xB8CC)"
+$guideName = "$([char]0xC0AC)$([char]0xC6A9)$([char]0xC124)$([char]0xBA85)$([char]0xC11C).html"
 $exeName = "$appName.exe"
 $zipName = "$appName.zip"
 $stageRoot = Join-Path $dist $appName
@@ -81,6 +82,7 @@ Copy-Item -LiteralPath $helperExe -Destination (Join-Path $bin "loopback_audio_r
 
 $supportFiles = @(
     "README.md",
+    $guideName,
     "LICENSE",
     "app.ico",
     "app_icon.png"

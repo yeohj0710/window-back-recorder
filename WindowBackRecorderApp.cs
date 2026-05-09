@@ -158,6 +158,8 @@ namespace WindowBackRecorder
             Grid.SetColumn(headerButtons, 1);
             headerGrid.Children.Add(headerButtons);
 
+            headerButtons.Children.Add(CreateButton("사용법", OpenUserGuide, "#16212b", "#263546"));
+            headerButtons.Children.Add(Spacer(10, 1));
             headerButtons.Children.Add(CreateButton("소리 설정", OpenSoundMixer, "#16212b", "#263546"));
             headerButtons.Children.Add(Spacer(10, 1));
             headerButtons.Children.Add(CreateButton("새로고침", delegate { RefreshWindows(); RefreshAudioSources(); }, "#16212b", "#263546"));
@@ -921,6 +923,24 @@ namespace WindowBackRecorder
         private void OpenSoundMixer()
         {
             Process.Start(new ProcessStartInfo("ms-settings:apps-volume") { UseShellExecute = true });
+        }
+
+        private void OpenUserGuide()
+        {
+            string guidePath = Path.Combine(supportDir, "사용설명서.html");
+            if (!File.Exists(guidePath))
+            {
+                guidePath = Path.Combine(appDir, "사용설명서.html");
+            }
+
+            if (!File.Exists(guidePath))
+            {
+                SetStatus("사용설명서 파일을 찾을 수 없어요");
+                AppendLog("사용설명서 파일을 찾을 수 없어요");
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo(guidePath) { UseShellExecute = true });
         }
 
         private void OnProcessTimer(object sender, EventArgs e)

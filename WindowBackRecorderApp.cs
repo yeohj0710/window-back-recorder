@@ -250,7 +250,8 @@ namespace WindowBackRecorder
                 MinHeight = 34,
                 Background = Brush("#0d131a"),
                 Foreground = Brush("#e8edf2"),
-                BorderBrush = Brush("#263545")
+                BorderBrush = Brush("#263545"),
+                ItemContainerStyle = CreateComboItemStyle()
             };
             controls.Children.Add(audioCombo);
 
@@ -401,6 +402,15 @@ namespace WindowBackRecorder
             };
         }
 
+        private Style CreateComboItemStyle()
+        {
+            var style = new Style(typeof(ComboBoxItem));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#17212b")));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#f8fafc")));
+            style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8, 6, 8, 6)));
+            return style;
+        }
+
         private TextBox CreateTextBox()
         {
             return new TextBox
@@ -510,9 +520,19 @@ namespace WindowBackRecorder
             var sources = new List<AudioOption>();
             sources.Add(new AudioOption(NoAudioLabel, null));
 
-            foreach (var name in GetLoopbackSources())
+            var loopbacks = GetLoopbackSources();
+            loopbacks.Sort(delegate(AudioSourceInfo a, AudioSourceInfo b)
             {
-                sources.Add(new AudioOption("녹음 장치: " + name, name));
+                if (a.IsDefault != b.IsDefault) return a.IsDefault ? -1 : 1;
+                return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+            });
+
+            foreach (var source in loopbacks)
+            {
+                string label = source.IsDefault
+                    ? "기본 출력 녹음: " + source.Name + "  (추천)"
+                    : "출력 장치 녹음: " + source.Name;
+                sources.Add(new AudioOption(label, source.Name));
             }
 
             audioCombo.ItemsSource = sources;
@@ -656,7 +676,12 @@ namespace WindowBackRecorder
             args.Add("--source");
             args.Add(sourceName);
             if (monitorOn) args.Add("--monitor-on");
-            return StartProcess("python", args, "[소리] ");
+            var process = StartProcess("python", args, "[소리] ");
+            if (process.WaitForExit(900))
+            {
+                throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows에서 소리가 나가는 출력 장치와 같은 항목을 선택해주세요.");
+            }
+            return process;
         }
 
         private Process StartProcess(string fileName, List<string> args, string logPrefix)
@@ -674,6 +699,7 @@ namespace WindowBackRecorder
             };
             psi.StandardOutputEncoding = Encoding.UTF8;
             psi.StandardErrorEncoding = Encoding.UTF8;
+            ApplyPythonUtf8Environment(psi);
 
             var process = new Process();
             process.StartInfo = psi;
@@ -969,9 +995,9 @@ namespace WindowBackRecorder
             catch { }
         }
 
-        private List<string> GetLoopbackSources()
+        private List<AudioSourceInfo> GetLoopbackSources()
         {
-            var results = new List<string>();
+            var results = new List<AudioSourceInfo>();
             string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
             if (!File.Exists(script)) return results;
 
@@ -988,6 +1014,8 @@ namespace WindowBackRecorder
                     RedirectStandardError = true
                 };
                 psi.StandardOutputEncoding = Encoding.UTF8;
+                psi.StandardErrorEncoding = Encoding.UTF8;
+                ApplyPythonUtf8Environment(psi);
                 var proc = Process.Start(psi);
                 string output = proc.StandardOutput.ReadToEnd();
                 proc.WaitForExit();
@@ -999,7 +1027,9 @@ namespace WindowBackRecorder
                     object name;
                     if (item.TryGetValue("name", out name) && name != null)
                     {
-                        results.Add(name.ToString());
+                        object isDefaultValue;
+                        bool isDefault = item.TryGetValue("default", out isDefaultValue) && isDefaultValue is bool && (bool)isDefaultValue;
+                        results.Add(new AudioSourceInfo(name.ToString(), isDefault));
                     }
                 }
             }
@@ -1066,6 +1096,13 @@ namespace WindowBackRecorder
             return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
         }
 
+        private static void ApplyPythonUtf8Environment(ProcessStartInfo psi)
+        {
+            if (!string.Equals(Path.GetFileNameWithoutExtension(psi.FileName), "python", StringComparison.OrdinalIgnoreCase)) return;
+            psi.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+            psi.EnvironmentVariables["PYTHONUTF8"] = "1";
+        }
+
         private static string JoinArgs(IEnumerable<string> args)
         {
             var builder = new StringBuilder();
@@ -1083,6 +1120,18 @@ namespace WindowBackRecorder
             if (arg.Length == 0) return "\"\"";
             if (!Regex.IsMatch(arg, "[\\s\"]")) return arg;
             return "\"" + arg.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+        }
+    }
+
+    public sealed class AudioSourceInfo
+    {
+        public string Name { get; private set; }
+        public bool IsDefault { get; private set; }
+
+        public AudioSourceInfo(string name, bool isDefault)
+        {
+            Name = name;
+            IsDefault = isDefault;
         }
     }
 

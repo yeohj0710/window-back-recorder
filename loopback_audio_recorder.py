@@ -8,6 +8,13 @@ import numpy as np
 import soundcard as sc
 
 
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except AttributeError:
+    pass
+
+
 def watch_stdin(stop_event, monitor_event):
     for line in sys.stdin:
         command = line.strip().lower()
@@ -32,11 +39,20 @@ def loopback_microphones():
 
 def list_loopbacks():
     devices = []
+    default_name = None
+    try:
+        default_speaker = sc.default_speaker()
+        if default_speaker is not None:
+            default_name = default_speaker.name
+    except Exception:
+        default_name = None
+
     for microphone in loopback_microphones():
         devices.append(
             {
                 "name": microphone.name,
                 "description": str(microphone),
+                "default": microphone.name == default_name,
             }
         )
     print(json.dumps(devices, ensure_ascii=False), flush=True)

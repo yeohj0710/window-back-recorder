@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows;
 using System.Windows.Controls;
@@ -59,6 +60,10 @@ namespace WindowBackRecorder
         private WindowInfo selectedWindow;
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
+        private bool isStopping;
+        private int busyTick;
+        private int logLineCount;
+        private DateTime lastFfmpegProgressLogUtc = DateTime.MinValue;
         private DateTime lastWindowScanUtc = DateTime.MinValue;
         private string lastWindowSnapshot = "";
 
@@ -600,6 +605,12 @@ namespace WindowBackRecorder
 
         private void StartRecording()
         {
+            if (isStopping)
+            {
+                SetStatus("이전 녹화를 정리하는 중이에요");
+                return;
+            }
+
             if (selectedWindow == null)
             {
                 SetStatus("먼저 녹화할 창을 선택해주세요");
@@ -806,11 +817,11 @@ namespace WindowBackRecorder
             process.EnableRaisingEvents = true;
             process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
             {
-                if (!string.IsNullOrEmpty(e.Data)) Dispatcher.BeginInvoke(new Action(delegate { AppendLog(logPrefix + e.Data); }));
+                if (!string.IsNullOrEmpty(e.Data)) QueueProcessLog(logPrefix, e.Data);
             };
             process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
             {
-                if (!string.IsNullOrEmpty(e.Data)) Dispatcher.BeginInvoke(new Action(delegate { AppendLog(logPrefix + e.Data); }));
+                if (!string.IsNullOrEmpty(e.Data)) QueueProcessLog(logPrefix, e.Data);
             };
 
             if (!process.Start()) throw new InvalidOperationException(fileName + " 실행에 실패했어요");
@@ -826,20 +837,48 @@ namespace WindowBackRecorder
 
         private void StopRecording()
         {
+            if (isStopping) return;
             var recording = activeRecording;
-            StopProcessesOnly();
+            var videoProcess = ffmpegProcess;
+            var soundProcess = audioProcess;
 
-            startButton.IsEnabled = true;
-            stopButton.IsEnabled = false;
-            saveFolderBox.IsEnabled = true;
-
-            if (recording != null && recording.HasLoopbackAudio)
-            {
-                MuxRecording(recording);
-            }
-
+            isStopping = true;
             activeRecording = null;
-            SetStatus("준비됨");
+            ffmpegProcess = null;
+            audioProcess = null;
+
+            startButton.IsEnabled = false;
+            stopButton.IsEnabled = false;
+            stopButton.Content = "처리 중";
+            saveFolderBox.IsEnabled = true;
+            SetStatus("녹화 종료 처리 중...");
+            AppendLog("녹화 종료 처리 중...");
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    StopProcessNicely(videoProcess);
+                    StopProcessNicely(soundProcess);
+
+                    if (recording != null && recording.HasLoopbackAudio)
+                    {
+                        MuxRecording(recording);
+                    }
+                }
+                finally
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        isStopping = false;
+                        startButton.IsEnabled = true;
+                        stopButton.IsEnabled = false;
+                        stopButton.Content = "녹화 종료";
+                        saveFolderBox.IsEnabled = true;
+                        SetStatus("준비됨");
+                    }));
+                }
+            });
         }
 
         private void StopProcessesOnly()
@@ -875,7 +914,7 @@ namespace WindowBackRecorder
         {
             try
             {
-                AppendLog("영상과 소리를 합치는 중...");
+                QueueUiLog("영상과 소리를 합치는 중...");
                 var args = new List<string>();
                 args.Add("-hide_banner");
                 args.Add("-y");
@@ -913,17 +952,20 @@ namespace WindowBackRecorder
                 {
                     TryDelete(recording.VideoPath);
                     TryDelete(recording.AudioPath);
-                    outputText.Text = "저장 파일: " + recording.FinalPath;
-                    AppendLog("저장 완료: " + recording.FinalPath);
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        outputText.Text = "저장 파일: " + recording.FinalPath;
+                        AppendLog("저장 완료: " + recording.FinalPath);
+                    }));
                 }
                 else
                 {
-                    AppendLog("파일을 합치지 못했어요: " + err);
+                    QueueUiLog("파일을 합치지 못했어요: " + err);
                 }
             }
             catch (Exception ex)
             {
-                AppendLog("파일을 합치지 못했어요: " + ex.Message);
+                QueueUiLog("파일을 합치지 못했어요: " + ex.Message);
             }
         }
 
@@ -1029,6 +1071,13 @@ namespace WindowBackRecorder
 
         private void OnProcessTimer(object sender, EventArgs e)
         {
+            if (isStopping)
+            {
+                busyTick = (busyTick + 1) % 4;
+                SetStatus("녹화 종료 처리 중" + new string('.', busyTick));
+                return;
+            }
+
             if (activeRecording == null && (DateTime.UtcNow - lastWindowScanUtc).TotalSeconds >= 2)
             {
                 lastWindowScanUtc = DateTime.UtcNow;
@@ -1277,8 +1326,35 @@ namespace WindowBackRecorder
         private void AppendLog(string text)
         {
             if (logBox == null) return;
+            logLineCount++;
+            if (logLineCount > 260)
+            {
+                logBox.Clear();
+                logBox.AppendText(DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  이전 로그를 정리했어요." + Environment.NewLine);
+                logLineCount = 1;
+            }
             logBox.AppendText(DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + text + Environment.NewLine);
             logBox.ScrollToEnd();
+        }
+
+        private void QueueUiLog(string text)
+        {
+            Dispatcher.BeginInvoke(new Action(delegate { AppendLog(text); }));
+        }
+
+        private void QueueProcessLog(string logPrefix, string text)
+        {
+            if (string.Equals(logPrefix, "[화면] ", StringComparison.Ordinal) && text.IndexOf("frame=", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                DateTime now = DateTime.UtcNow;
+                if ((now - lastFfmpegProgressLogUtc).TotalSeconds < 5)
+                {
+                    return;
+                }
+                lastFfmpegProgressLogUtc = now;
+            }
+
+            Dispatcher.BeginInvoke(new Action(delegate { AppendLog(logPrefix + text); }));
         }
 
         private static SolidColorBrush Brush(string hex)

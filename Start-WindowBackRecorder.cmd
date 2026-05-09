@@ -1,4 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-start "" "%~dp0WindowBackRecorder.exe"
+for %%I in ("%~dp0*.exe") do (
+  start "" "%%~fI"
+  exit /b
+)

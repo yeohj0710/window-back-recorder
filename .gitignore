@@ -5,3 +5,6 @@ __pycache__/
 *.video.mkv
 *.audio.wav
 *.log
+WindowBackRecorder.exe
+dist/창 뒤 녹화기/
+diagnostics/

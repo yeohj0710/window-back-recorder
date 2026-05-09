@@ -13,6 +13,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using WinForms = System.Windows.Forms;
 
@@ -33,6 +34,7 @@ namespace WindowBackRecorder
     public sealed class MainWindow : Window
     {
         private readonly string appDir;
+        private readonly string supportDir;
         private readonly string settingsPath;
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         private readonly DispatcherTimer processTimer = new DispatcherTimer();
@@ -58,14 +60,22 @@ namespace WindowBackRecorder
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
 
+        private const string SupportFolderName = "창 뒤 녹화기_자료";
         private const string NoAudioLabel = "소리 없이 녹화";
 
         public MainWindow()
         {
             appDir = AppDomain.CurrentDomain.BaseDirectory;
-            settingsPath = Path.Combine(appDir, "settings.json");
+            string packagedSupportDir = Path.Combine(appDir, SupportFolderName);
+            supportDir = Directory.Exists(packagedSupportDir) ? packagedSupportDir : appDir;
+            settingsPath = Path.Combine(supportDir, "settings.json");
 
             Title = "창 뒤 녹화기";
+            string iconPath = Path.Combine(supportDir, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                Icon = BitmapFrame.Create(new Uri(iconPath, UriKind.Absolute));
+            }
             Width = 1180;
             Height = 760;
             MinWidth = 980;
@@ -609,7 +619,7 @@ namespace WindowBackRecorder
         private Process StartLoopbackAudio(string audioPath, string sourceName, bool monitorOn)
         {
             var args = new List<string>();
-            args.Add(Path.Combine(appDir, "loopback_audio_recorder.py"));
+            args.Add(Path.Combine(supportDir, "loopback_audio_recorder.py"));
             args.Add(audioPath);
             args.Add("--source");
             args.Add(sourceName);
@@ -623,7 +633,7 @@ namespace WindowBackRecorder
             {
                 FileName = fileName,
                 Arguments = JoinArgs(args),
-                WorkingDirectory = appDir,
+                WorkingDirectory = supportDir,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardInput = true,
@@ -732,7 +742,7 @@ namespace WindowBackRecorder
                 {
                     FileName = "ffmpeg",
                     Arguments = JoinArgs(args),
-                    WorkingDirectory = appDir,
+                    WorkingDirectory = supportDir,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardError = true
@@ -894,7 +904,12 @@ namespace WindowBackRecorder
 
         private void LoadSettings()
         {
-            string fallback = Path.Combine(appDir, "recordings");
+            string videos = Environment.GetFolderPath(Environment.SpecialFolder.MyVideos);
+            if (string.IsNullOrWhiteSpace(videos))
+            {
+                videos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            }
+            string fallback = Path.Combine(videos, "창 뒤 녹화기");
             saveFolderBox.Text = fallback;
             try
             {
@@ -925,7 +940,7 @@ namespace WindowBackRecorder
         private List<string> GetLoopbackSources()
         {
             var results = new List<string>();
-            string script = Path.Combine(appDir, "loopback_audio_recorder.py");
+            string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
             if (!File.Exists(script)) return results;
 
             try
@@ -934,7 +949,7 @@ namespace WindowBackRecorder
                 {
                     FileName = "python",
                     Arguments = JoinArgs(new List<string> { script, "--list-json" }),
-                    WorkingDirectory = appDir,
+                    WorkingDirectory = supportDir,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,

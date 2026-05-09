@@ -9,15 +9,18 @@ if (-not (Test-Path $csc)) {
     throw "Could not find csc.exe from .NET Framework."
 }
 
-$output = Join-Path $repo "WindowBackRecorder.exe"
+$exeName = "$([char]0xCC3D) $([char]0xB4A4) $([char]0xB179)$([char]0xD654)$([char]0xAE30).exe"
+$output = Join-Path $repo $exeName
 $source = Join-Path $repo "WindowBackRecorderApp.cs"
 $frameworkDir = Split-Path -Parent $csc
 $wpfDir = Join-Path $frameworkDir "WPF"
+$icon = Join-Path $repo "app.ico"
 
 & $csc `
     "/nologo" `
     "/target:winexe" `
     "/out:$output" `
+    "/win32icon:$icon" `
     "/reference:$(Join-Path $wpfDir 'PresentationCore.dll')" `
     "/reference:$(Join-Path $wpfDir 'PresentationFramework.dll')" `
     "/reference:$(Join-Path $wpfDir 'WindowsBase.dll')" `

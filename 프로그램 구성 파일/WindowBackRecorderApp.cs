@@ -54,6 +54,7 @@ namespace WindowBackRecorder
         private Button stopButton;
         private ToggleButton listenToggle;
         private ToggleButton cursorToggle;
+        private ToggleButton boostAudioToggle;
         private Slider fpsSlider;
 
         private Process ffmpegProcess;
@@ -279,7 +280,7 @@ namespace WindowBackRecorder
             audioStatusText.Foreground = Brush("#1d4ed8");
             controls.Children.Add(audioStatusText);
 
-            var audioWarningText = MetaText("재생 소리를 끄는 기능은 아직 없어요. 대상 앱을 음소거하면 녹음도 안 될 수 있어요");
+            var audioWarningText = MetaText("대상 앱은 음소거하지 말고 볼륨만 낮추세요");
             audioWarningText.Margin = new Thickness(0, 0, 0, 14);
             audioWarningText.Foreground = Brush("#b45309");
             audioWarningText.TextWrapping = TextWrapping.Wrap;
@@ -289,6 +290,9 @@ namespace WindowBackRecorder
             silentHelpButton.Height = 34;
             silentHelpButton.Margin = new Thickness(0, 0, 0, 14);
             controls.Children.Add(silentHelpButton);
+
+            boostAudioToggle = CreateSwitchToggle("작게 들은 소리 크게 저장", true);
+            controls.Children.Add(boostAudioToggle);
 
             controls.Children.Add(FormLabel("화면 부드러움"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };
@@ -328,12 +332,16 @@ namespace WindowBackRecorder
             buttonGrid.Children.Add(stopButton);
 
             controls.Children.Add(SectionLabel("창 보기"));
-            var viewGrid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 12) };
+            var minimizeWarning = MetaText("Windows 최소화 버튼 말고 아래 버튼을 사용하세요");
+            minimizeWarning.Foreground = Brush("#b45309");
+            minimizeWarning.TextWrapping = TextWrapping.Wrap;
+            minimizeWarning.Margin = new Thickness(0, 0, 0, 8);
+            controls.Children.Add(minimizeWarning);
+
+            var viewGrid = new UniformGrid { Columns = 1, Margin = new Thickness(0, 8, 0, 12) };
             controls.Children.Add(viewGrid);
-            viewGrid.Children.Add(CreateSmallButton("뒤로 보내기", SendTargetBack));
-            viewGrid.Children.Add(CreateSmallButton("앞으로 보기", BringTargetFront));
-            viewGrid.Children.Add(CreateSmallButton("작게 두기", CompactTarget));
-            viewGrid.Children.Add(CreateSmallButton("크기 복원", RestoreTarget));
+            viewGrid.Children.Add(CreateSmallButton("창 생략하기 (다른 작업 가능)", SendTargetBack));
+            viewGrid.Children.Add(CreateSmallButton("창 다시 띄우기", BringTargetFront));
 
             controls.Children.Add(SectionLabel("상태"));
             engineText = MetaText("화면 캡처: 확인 중");
@@ -941,16 +949,8 @@ namespace WindowBackRecorder
                     catch (Exception audioEx)
                     {
                         AppendLog("선택한 앱 소리 녹음 실패: " + audioEx.Message);
-                        try
-                        {
-                            AppendLog("PC 전체 소리 녹음으로 한 번 더 시도합니다.");
-                            audioProcess = StartLoopbackAudio(audioPath, null, false);
-                            audioStarted = true;
-                        }
-                        catch (Exception fallbackEx)
-                        {
-                            AppendLog("소리 녹음 없이 화면 녹화를 계속합니다: " + fallbackEx.Message);
-                        }
+                        AppendLog("다른 창 소리가 섞이지 않도록 PC 전체 소리 녹음은 사용하지 않습니다.");
+                        AppendLog("소리 녹음 없이 화면 녹화를 계속합니다.");
                     }
                 }
 
@@ -959,7 +959,8 @@ namespace WindowBackRecorder
                     FinalPath = finalPath,
                     VideoPath = videoPath,
                     AudioPath = audioStarted ? audioPath : null,
-                    HasLoopbackAudio = audioStarted
+                    HasLoopbackAudio = audioStarted,
+                    BoostAudio = audioStarted && boostAudioToggle.IsChecked == true
                 };
 
                 startButton.IsEnabled = false;
@@ -1077,8 +1078,7 @@ namespace WindowBackRecorder
                 if (!File.Exists(script)) script = Path.Combine(appDir, "process_audio_recorder.py");
                 if (!File.Exists(script))
                 {
-                    AppendLog("선택한 앱 소리 녹음 helper가 없어 PC 전체 소리 녹음으로 대신합니다.");
-                    return StartLoopbackAudio(audioPath, null, false);
+                    throw new InvalidOperationException("선택한 앱 소리 녹음 파일을 찾지 못했어요.");
                 }
                 fileName = "python";
                 args.Add(script);
@@ -1220,40 +1220,16 @@ namespace WindowBackRecorder
             try
             {
                 QueueUiLog("영상과 소리를 합치는 중...");
-                var args = new List<string>();
-                args.Add("-hide_banner");
-                args.Add("-y");
-                args.Add("-i");
-                args.Add(recording.VideoPath);
-                args.Add("-i");
-                args.Add(recording.AudioPath);
-                args.Add("-map");
-                args.Add("0:v:0");
-                args.Add("-map");
-                args.Add("1:a:0");
-                args.Add("-c:v");
-                args.Add("copy");
-                args.Add("-c:a");
-                args.Add("aac");
-                args.Add("-b:a");
-                args.Add("160k");
-                args.Add("-shortest");
-                args.Add(recording.FinalPath);
+                string err;
+                int exitCode = RunMux(recording, recording.BoostAudio, out err);
 
-                var psi = new ProcessStartInfo
+                if (exitCode != 0 && recording.BoostAudio)
                 {
-                    FileName = GetFfmpegPath(),
-                    Arguments = JoinArgs(args),
-                    WorkingDirectory = supportDir,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true
-                };
-                var proc = Process.Start(psi);
-                string err = proc.StandardError.ReadToEnd();
-                proc.WaitForExit();
+                    QueueUiLog("소리 키우기 처리에 실패해서 기본 방식으로 다시 저장합니다.");
+                    exitCode = RunMux(recording, false, out err);
+                }
 
-                if (proc.ExitCode == 0)
+                if (exitCode == 0)
                 {
                     TryDelete(recording.VideoPath);
                     TryDelete(recording.AudioPath);
@@ -1272,6 +1248,48 @@ namespace WindowBackRecorder
             {
                 QueueUiLog("파일을 합치지 못했어요: " + ex.Message);
             }
+        }
+
+        private int RunMux(RecordingState recording, bool boostAudio, out string err)
+        {
+                var args = new List<string>();
+                args.Add("-hide_banner");
+                args.Add("-y");
+                args.Add("-i");
+                args.Add(recording.VideoPath);
+                args.Add("-i");
+                args.Add(recording.AudioPath);
+                args.Add("-map");
+                args.Add("0:v:0");
+                args.Add("-map");
+                args.Add("1:a:0");
+                args.Add("-c:v");
+                args.Add("copy");
+                if (boostAudio)
+                {
+                    args.Add("-af");
+                    args.Add("loudnorm=I=-16:TP=-1.5:LRA=11");
+                }
+                args.Add("-c:a");
+                args.Add("aac");
+                args.Add("-b:a");
+                args.Add("160k");
+                args.Add("-shortest");
+                args.Add(recording.FinalPath);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = GetFfmpegPath(),
+                    Arguments = JoinArgs(args),
+                    WorkingDirectory = supportDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+                var proc = Process.Start(psi);
+                err = proc.StandardError.ReadToEnd();
+                proc.WaitForExit();
+                return proc.ExitCode;
         }
 
         private void FinalizeVideoOnlyRecording(RecordingState recording)
@@ -1420,12 +1438,11 @@ namespace WindowBackRecorder
         private void OpenSilentRecordingHelp()
         {
             string message =
-                "소리를 끄는 대신 출력 장치를 다른 곳으로 빼는 방식입니다.\n\n" +
-                "1. 녹화할 앱에서 소리가 실제로 나오게 둡니다.\n" +
-                "2. Windows 앱별 볼륨 설정에서 그 앱의 출력 장치를 안 쓰는 장치로 바꿉니다.\n" +
-                "   예: 모니터 오디오, 안 쓰는 이어폰, 가상 오디오 장치\n" +
-                "3. 앱이나 탭을 음소거하지는 마세요. 음소거하면 녹음도 조용해질 수 있어요.\n" +
-                "4. 짧게 테스트 녹화해서 파일에 소리가 들어가는지 확인합니다.";
+                "대상 앱을 음소거하지 않는 게 핵심입니다.\n\n" +
+                "방법 1. 대상 앱 볼륨만 작게 낮추고, 프로그램의 '작게 들은 소리 크게 저장'을 켭니다.\n" +
+                "방법 2. Windows 앱별 볼륨 설정에서 대상 앱의 출력 장치를 안 쓰는 장치로 바꿉니다.\n" +
+                "예: 모니터 오디오, 안 쓰는 이어폰, 가상 오디오 장치\n\n" +
+                "앱이나 탭을 음소거하면 녹음도 조용해질 수 있어요. 짧게 테스트 녹화해서 파일에 소리가 들어가는지 확인해주세요.";
 
             System.Windows.MessageBox.Show(this, message, "무음 녹화 도움", MessageBoxButton.OK, MessageBoxImage.Information);
             OpenSoundMixer();
@@ -1596,13 +1613,7 @@ namespace WindowBackRecorder
             processScript = Path.Combine(appDir, "process_audio_recorder.py");
             if (File.Exists(processScript)) return true;
 
-            if (!string.IsNullOrEmpty(GetAudioHelperPath())) return true;
-
-            string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
-            if (File.Exists(script)) return true;
-
-            script = Path.Combine(appDir, "loopback_audio_recorder.py");
-            return File.Exists(script);
+            return false;
         }
 
         private List<AudioSourceInfo> GetLoopbackSources()
@@ -1837,6 +1848,7 @@ namespace WindowBackRecorder
         public string VideoPath;
         public string AudioPath;
         public bool HasLoopbackAudio;
+        public bool BoostAudio;
     }
 
     public sealed class WindowInfo

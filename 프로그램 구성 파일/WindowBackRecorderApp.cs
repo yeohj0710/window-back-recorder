@@ -55,6 +55,7 @@ namespace WindowBackRecorder
         private ToggleButton listenToggle;
         private ToggleButton cursorToggle;
         private ToggleButton boostAudioToggle;
+        private ToggleButton silentPlaybackToggle;
         private Slider fpsSlider;
 
         private Process ffmpegProcess;
@@ -64,6 +65,9 @@ namespace WindowBackRecorder
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
         private bool isStopping;
+        private bool isPaused;
+        private bool silentPlaybackApplied;
+        private readonly List<AudioSessionSnapshot> audioSessionSnapshots = new List<AudioSessionSnapshot>();
         private int busyTick;
         private int logLineCount;
         private DateTime lastFfmpegProgressLogUtc = DateTime.MinValue;
@@ -112,6 +116,7 @@ namespace WindowBackRecorder
             processTimer.Start();
 
             Closing += OnClosing;
+            AppDomain.CurrentDomain.ProcessExit += delegate { RestorePlaybackVolume(); };
         }
 
         private void BuildUi()
@@ -249,7 +254,8 @@ namespace WindowBackRecorder
             var controlScroll = new ScrollViewer
             {
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Focusable = false
             };
             TryApplyDarkScrollBar(controlScroll);
             rightPanel.Child = controlScroll;
@@ -274,24 +280,43 @@ namespace WindowBackRecorder
             Grid.SetColumn(browse, 1);
             folderRow.Children.Add(browse);
 
+            var buttonGrid = new Grid { Margin = new Thickness(0, 4, 0, 18) };
+            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
+            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            controls.Children.Add(buttonGrid);
+
+            startButton = CreateButton("녹화 시작", ToggleRecordingAction, "#1e6bff", "#3d82ff");
+            startButton.Height = 46;
+            Grid.SetColumn(startButton, 0);
+            buttonGrid.Children.Add(startButton);
+
+            stopButton = CreateButton("녹화 종료", StopRecordingFromUi, "#be123c", "#9f1239");
+            stopButton.Height = 46;
+            stopButton.IsEnabled = false;
+            Grid.SetColumn(stopButton, 2);
+            buttonGrid.Children.Add(stopButton);
+
             controls.Children.Add(FormLabel("소리"));
             audioStatusText = MetaText("선택한 앱 소리만 자동 녹음");
             audioStatusText.Margin = new Thickness(0, 4, 0, 6);
             audioStatusText.Foreground = Brush("#1d4ed8");
             controls.Children.Add(audioStatusText);
 
-            var audioWarningText = MetaText("대상 앱은 음소거하지 말고 볼륨만 낮추세요");
+            var audioWarningText = MetaText("대상 앱은 음소거하지 말고 필요하면 아래 옵션을 켜세요");
             audioWarningText.Margin = new Thickness(0, 0, 0, 14);
             audioWarningText.Foreground = Brush("#b45309");
             audioWarningText.TextWrapping = TextWrapping.Wrap;
             controls.Children.Add(audioWarningText);
 
-            var silentHelpButton = CreateButton("무음 녹화 도움", OpenSilentRecordingHelp, "#eef4ff", "#dbeafe");
-            silentHelpButton.Height = 34;
-            silentHelpButton.Margin = new Thickness(0, 0, 0, 14);
-            controls.Children.Add(silentHelpButton);
+            silentPlaybackToggle = CreateSwitchToggle("소리 끄고 녹화하기", false);
+            silentPlaybackToggle.Checked += delegate { ApplySilentPlaybackIfRecording(); };
+            silentPlaybackToggle.Unchecked += delegate { RestorePlaybackVolume(); };
+            controls.Children.Add(silentPlaybackToggle);
 
             boostAudioToggle = CreateSwitchToggle("작게 들은 소리 크게 저장", true);
+            boostAudioToggle.Checked += delegate { if (activeRecording != null) activeRecording.BoostAudio = true; };
+            boostAudioToggle.Unchecked += delegate { if (activeRecording != null && silentPlaybackToggle.IsChecked != true) activeRecording.BoostAudio = false; };
             controls.Children.Add(boostAudioToggle);
 
             controls.Children.Add(FormLabel("화면 부드러움"));
@@ -313,23 +338,6 @@ namespace WindowBackRecorder
 
             listenToggle = CreateToggle("내 스피커로 듣기", false);
             listenToggle.Visibility = Visibility.Collapsed;
-
-            var buttonGrid = new Grid { Margin = new Thickness(0, 18, 0, 14) };
-            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
-            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            controls.Children.Add(buttonGrid);
-
-            startButton = CreateButton("녹화 시작", StartRecording, "#1e6bff", "#3d82ff");
-            startButton.Height = 44;
-            Grid.SetColumn(startButton, 0);
-            buttonGrid.Children.Add(startButton);
-
-            stopButton = CreateButton("녹화 종료", StopRecordingFromUi, "#be123c", "#9f1239");
-            stopButton.Height = 44;
-            stopButton.IsEnabled = false;
-            Grid.SetColumn(stopButton, 2);
-            buttonGrid.Children.Add(stopButton);
 
             controls.Children.Add(SectionLabel("창 보기"));
             var minimizeWarning = MetaText("Windows 최소화 버튼 말고 아래 버튼을 사용하세요");
@@ -516,7 +524,8 @@ namespace WindowBackRecorder
                 Margin = new Thickness(0, 0, 0, 8),
                 Height = 34,
                 Style = CreateToggleStyle(),
-                Cursor = System.Windows.Input.Cursors.Hand
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Focusable = false
             };
             return toggle;
         }
@@ -530,7 +539,8 @@ namespace WindowBackRecorder
                 Height = 34,
                 Margin = new Thickness(0, 0, 0, 8),
                 Style = CreateSwitchStyle(),
-                Cursor = System.Windows.Input.Cursors.Hand
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Focusable = false
             };
             if (isChecked)
             {
@@ -556,7 +566,8 @@ namespace WindowBackRecorder
                 Margin = new Thickness(0),
                 BorderThickness = new Thickness(1),
                 Style = CreateButtonStyle(background, hover),
-                Cursor = System.Windows.Input.Cursors.Hand
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Focusable = false
             };
             button.Click += delegate { action(); };
             return button;
@@ -573,6 +584,7 @@ namespace WindowBackRecorder
             style.Setters.Add(new Setter(Control.ForegroundProperty, normalText));
             style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(hover)));
             style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, null));
             style.Setters.Add(new Setter(Control.TemplateProperty, CreateButtonTemplate()));
 
             var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
@@ -617,6 +629,7 @@ namespace WindowBackRecorder
             style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#cbd5e1")));
             style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
             style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, null));
             style.Setters.Add(new Setter(Control.TemplateProperty, CreateButtonTemplate()));
 
             var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
@@ -648,6 +661,7 @@ namespace WindowBackRecorder
             style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#cbd5e1")));
             style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
             style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, null));
             style.Setters.Add(new Setter(Control.TemplateProperty, CreateSwitchTemplate()));
 
             var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
@@ -799,6 +813,7 @@ namespace WindowBackRecorder
             itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#111827")));
             itemStyle.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#ffffff")));
             itemStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            itemStyle.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, null));
 
             var selectedTrigger = new Trigger { Property = ListViewItem.IsSelectedProperty, Value = true };
             selectedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#dbeafe")));
@@ -895,6 +910,24 @@ namespace WindowBackRecorder
             targetText.Text = selectedWindow.ProcessName + "  " + selectedWindow.SizeText;
         }
 
+        private void ToggleRecordingAction()
+        {
+            if (activeRecording == null)
+            {
+                StartRecording();
+                return;
+            }
+
+            if (isPaused)
+            {
+                ResumeRecording();
+            }
+            else
+            {
+                PauseRecording();
+            }
+        }
+
         private void StartRecording()
         {
             if (isStopping)
@@ -960,10 +993,14 @@ namespace WindowBackRecorder
                     VideoPath = videoPath,
                     AudioPath = audioStarted ? audioPath : null,
                     HasLoopbackAudio = audioStarted,
-                    BoostAudio = audioStarted && boostAudioToggle.IsChecked == true
+                    BoostAudio = audioStarted && (boostAudioToggle.IsChecked == true || silentPlaybackToggle.IsChecked == true)
                 };
 
-                startButton.IsEnabled = false;
+                ApplySilentPlaybackIfRecording();
+
+                isPaused = false;
+                startButton.Content = "일시정지";
+                startButton.IsEnabled = true;
                 stopButton.IsEnabled = true;
                 saveFolderBox.IsEnabled = false;
                 outputText.Text = "저장 파일: " + finalPath;
@@ -976,6 +1013,28 @@ namespace WindowBackRecorder
                 StopProcessesOnly();
                 SetStatus("시작 실패");
             }
+        }
+
+        private void PauseRecording()
+        {
+            if (activeRecording == null || isStopping) return;
+            TrySuspendProcess(ffmpegProcess);
+            TrySuspendProcess(audioProcess);
+            isPaused = true;
+            startButton.Content = "다시 시작";
+            SetStatus("일시정지");
+            AppendLog("녹화 일시정지");
+        }
+
+        private void ResumeRecording()
+        {
+            if (activeRecording == null || isStopping) return;
+            TryResumeProcess(ffmpegProcess);
+            TryResumeProcess(audioProcess);
+            isPaused = false;
+            startButton.Content = "일시정지";
+            SetStatus("녹화 중");
+            AppendLog("녹화 다시 시작");
         }
 
         private Process StartFfmpegCapture(WindowInfo target, string outputPath, int fps, bool drawCursor, bool finalOutput)
@@ -1151,6 +1210,8 @@ namespace WindowBackRecorder
             startButton.IsEnabled = false;
             stopButton.IsEnabled = false;
             stopButton.Content = "처리 중";
+            isPaused = false;
+            startButton.Content = "녹화 시작";
             saveFolderBox.IsEnabled = true;
             SetStatus("녹화 종료 처리 중...");
             AppendLog("녹화 종료 처리 중...");
@@ -1159,8 +1220,11 @@ namespace WindowBackRecorder
             {
                 try
                 {
+                    TryResumeProcess(videoProcess);
+                    TryResumeProcess(soundProcess);
                     StopProcessNicely(videoProcess);
                     StopProcessNicely(soundProcess);
+                    RestorePlaybackVolume();
 
                     if (recording != null && recording.HasLoopbackAudio)
                     {
@@ -1179,6 +1243,7 @@ namespace WindowBackRecorder
                         startButton.IsEnabled = true;
                         stopButton.IsEnabled = false;
                         stopButton.Content = "녹화 종료";
+                        startButton.Content = "녹화 시작";
                         saveFolderBox.IsEnabled = true;
                         SetStatus("준비됨");
                     }));
@@ -1188,10 +1253,37 @@ namespace WindowBackRecorder
 
         private void StopProcessesOnly()
         {
+            TryResumeProcess(ffmpegProcess);
+            TryResumeProcess(audioProcess);
             StopProcessNicely(ffmpegProcess);
             StopProcessNicely(audioProcess);
             ffmpegProcess = null;
             audioProcess = null;
+            RestorePlaybackVolume();
+        }
+
+        private void TrySuspendProcess(Process process)
+        {
+            try
+            {
+                if (process != null && !process.HasExited)
+                {
+                    NativeMethods.NtSuspendProcess(process.Handle);
+                }
+            }
+            catch { }
+        }
+
+        private void TryResumeProcess(Process process)
+        {
+            try
+            {
+                if (process != null && !process.HasExited)
+                {
+                    NativeMethods.NtResumeProcess(process.Handle);
+                }
+            }
+            catch { }
         }
 
         private void StopProcessNicely(Process process)
@@ -1415,6 +1507,61 @@ namespace WindowBackRecorder
             }
         }
 
+        private void ApplySilentPlaybackIfRecording()
+        {
+            if (activeRecording == null || !activeRecording.HasLoopbackAudio || silentPlaybackToggle == null || silentPlaybackToggle.IsChecked != true)
+            {
+                return;
+            }
+            if (silentPlaybackApplied || selectedWindow == null) return;
+
+            try
+            {
+                audioSessionSnapshots.Clear();
+                List<AudioSessionSnapshot> snapshots = AudioSessionVolumeController.LowerMatchingSessions(
+                    selectedWindow.ProcessId,
+                    selectedWindow.ProcessName,
+                    0.015f);
+
+                audioSessionSnapshots.AddRange(snapshots);
+                silentPlaybackApplied = audioSessionSnapshots.Count > 0;
+                if (silentPlaybackApplied)
+                {
+                    if (activeRecording != null) activeRecording.BoostAudio = true;
+                    AppendLog("대상 앱 재생 소리를 작게 낮췄어요. 녹화 종료 시 되돌립니다.");
+                }
+                else
+                {
+                    AppendLog("낮출 수 있는 대상 앱 소리 세션을 찾지 못했어요.");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog("대상 앱 소리를 낮추지 못했어요: " + ex.Message);
+            }
+        }
+
+        private void RestorePlaybackVolume()
+        {
+            if (!silentPlaybackApplied && audioSessionSnapshots.Count == 0) return;
+
+            try
+            {
+                AudioSessionVolumeController.Restore(audioSessionSnapshots);
+            }
+            catch { }
+            finally
+            {
+                audioSessionSnapshots.Clear();
+                silentPlaybackApplied = false;
+                try
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate { AppendLog("대상 앱 재생 소리를 원래대로 되돌렸어요."); }));
+                }
+                catch { }
+            }
+        }
+
         private void BrowseFolder()
         {
             using (var dialog = new WinForms.FolderBrowserDialog())
@@ -1433,21 +1580,6 @@ namespace WindowBackRecorder
         private void OpenSoundMixer()
         {
             Process.Start(new ProcessStartInfo("ms-settings:apps-volume") { UseShellExecute = true });
-        }
-
-        private void OpenSilentRecordingHelp()
-        {
-            string message =
-                "대상 앱을 음소거하지 않는 게 핵심입니다.\n\n" +
-                "방법 1. 대상 앱 볼륨만 작게 낮추고, 프로그램의 '작게 들은 소리 크게 저장'을 켭니다.\n" +
-                "방법 2. Windows 앱별 볼륨 설정에서 대상 앱의 출력 장치를 안 쓰는 장치로 바꿉니다.\n" +
-                "예: 모니터 오디오, 안 쓰는 이어폰, 가상 오디오 장치\n\n" +
-                "앱이나 탭을 음소거하면 녹음도 조용해질 수 있어요. 짧게 테스트 녹화해서 파일에 소리가 들어가는지 확인해주세요.";
-
-            System.Windows.MessageBox.Show(this, message, "무음 녹화 도움", MessageBoxButton.OK, MessageBoxImage.Information);
-            OpenSoundMixer();
-            SetStatus("앱별 볼륨 설정을 열었어요");
-            AppendLog("무음 녹화 도움: 앱별 출력 장치 설정 열기");
         }
 
         private void OpenUserGuide()
@@ -1502,6 +1634,10 @@ namespace WindowBackRecorder
                     return;
                 }
                 StopRecording();
+            }
+            else
+            {
+                RestorePlaybackVolume();
             }
         }
 
@@ -1851,6 +1987,254 @@ namespace WindowBackRecorder
         public bool BoostAudio;
     }
 
+    public sealed class AudioSessionSnapshot
+    {
+        public ISimpleAudioVolume Volume;
+        public float MasterVolume;
+        public bool Muted;
+    }
+
+    public static class AudioSessionVolumeController
+    {
+        private static readonly Guid AudioSessionManager2Guid = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+        private static readonly Guid EventContext = new Guid("7F4F7F73-9A07-4F8B-8E16-3F3E32DE6C4A");
+
+        public static List<AudioSessionSnapshot> LowerMatchingSessions(int processId, string processName, float volume)
+        {
+            var snapshots = new List<AudioSessionSnapshot>();
+            IMMDevice device = null;
+            IAudioSessionManager2 manager = null;
+            IAudioSessionEnumerator sessions = null;
+
+            try
+            {
+                var enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+                Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, out device));
+
+                object managerObject;
+                Guid iid = AudioSessionManager2Guid;
+                Marshal.ThrowExceptionForHR(device.Activate(ref iid, CLSCTX.CLSCTX_ALL, IntPtr.Zero, out managerObject));
+                manager = (IAudioSessionManager2)managerObject;
+                Marshal.ThrowExceptionForHR(manager.GetSessionEnumerator(out sessions));
+
+                int count;
+                Marshal.ThrowExceptionForHR(sessions.GetCount(out count));
+                string normalizedProcessName = (processName ?? "").Trim();
+                Guid context = EventContext;
+
+                for (int i = 0; i < count; i++)
+                {
+                    IAudioSessionControl control = null;
+                    try
+                    {
+                        Marshal.ThrowExceptionForHR(sessions.GetSession(i, out control));
+                        var control2 = control as IAudioSessionControl2;
+                        var simpleVolume = control as ISimpleAudioVolume;
+                        if (control2 == null || simpleVolume == null) continue;
+
+                        int sessionPid;
+                        Marshal.ThrowExceptionForHR(control2.GetProcessId(out sessionPid));
+                        if (!MatchesProcess(sessionPid, processId, normalizedProcessName)) continue;
+
+                        float originalVolume;
+                        bool originalMute;
+                        Marshal.ThrowExceptionForHR(simpleVolume.GetMasterVolume(out originalVolume));
+                        Marshal.ThrowExceptionForHR(simpleVolume.GetMute(out originalMute));
+
+                        snapshots.Add(new AudioSessionSnapshot
+                        {
+                            Volume = simpleVolume,
+                            MasterVolume = originalVolume,
+                            Muted = originalMute
+                        });
+
+                        Marshal.ThrowExceptionForHR(simpleVolume.SetMute(false, ref context));
+                        Marshal.ThrowExceptionForHR(simpleVolume.SetMasterVolume(volume, ref context));
+                    }
+                    catch
+                    {
+                        if (control != null) Marshal.ReleaseComObject(control);
+                    }
+                }
+            }
+            finally
+            {
+                if (sessions != null) Marshal.ReleaseComObject(sessions);
+                if (manager != null) Marshal.ReleaseComObject(manager);
+                if (device != null) Marshal.ReleaseComObject(device);
+            }
+
+            return snapshots;
+        }
+
+        public static void Restore(List<AudioSessionSnapshot> snapshots)
+        {
+            Guid context = EventContext;
+            foreach (AudioSessionSnapshot snapshot in snapshots)
+            {
+                try
+                {
+                    if (snapshot.Volume != null)
+                    {
+                        snapshot.Volume.SetMasterVolume(snapshot.MasterVolume, ref context);
+                        snapshot.Volume.SetMute(snapshot.Muted, ref context);
+                    }
+                }
+                catch { }
+                finally
+                {
+                    try
+                    {
+                        if (snapshot.Volume != null) Marshal.ReleaseComObject(snapshot.Volume);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        private static bool MatchesProcess(int sessionPid, int selectedPid, string selectedProcessName)
+        {
+            if (sessionPid == selectedPid) return true;
+            if (string.IsNullOrWhiteSpace(selectedProcessName)) return false;
+
+            try
+            {
+                using (Process process = Process.GetProcessById(sessionPid))
+                {
+                    return string.Equals(process.ProcessName, selectedProcessName, StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    public enum EDataFlow
+    {
+        eRender = 0,
+        eCapture = 1,
+        eAll = 2
+    }
+
+    public enum ERole
+    {
+        eConsole = 0,
+        eMultimedia = 1,
+        eCommunications = 2
+    }
+
+    [Flags]
+    public enum CLSCTX : uint
+    {
+        CLSCTX_INPROC_SERVER = 0x1,
+        CLSCTX_INPROC_HANDLER = 0x2,
+        CLSCTX_LOCAL_SERVER = 0x4,
+        CLSCTX_REMOTE_SERVER = 0x10,
+        CLSCTX_ALL = CLSCTX_INPROC_SERVER | CLSCTX_INPROC_HANDLER | CLSCTX_LOCAL_SERVER | CLSCTX_REMOTE_SERVER
+    }
+
+    [ComImport]
+    [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    public class MMDeviceEnumerator
+    {
+    }
+
+    [ComImport]
+    [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDeviceEnumerator
+    {
+        [PreserveSig] int EnumAudioEndpoints(EDataFlow dataFlow, uint dwStateMask, out IntPtr ppDevices);
+        [PreserveSig] int GetDefaultAudioEndpoint(EDataFlow dataFlow, ERole role, out IMMDevice ppEndpoint);
+        [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string pwstrId, out IMMDevice ppDevice);
+        [PreserveSig] int RegisterEndpointNotificationCallback(IntPtr pClient);
+        [PreserveSig] int UnregisterEndpointNotificationCallback(IntPtr pClient);
+    }
+
+    [ComImport]
+    [Guid("D666063F-1587-4E43-81F1-B948E807363F")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IMMDevice
+    {
+        [PreserveSig] int Activate(ref Guid iid, CLSCTX dwClsCtx, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
+        [PreserveSig] int OpenPropertyStore(uint stgmAccess, out IntPtr ppProperties);
+        [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
+        [PreserveSig] int GetState(out uint pdwState);
+    }
+
+    [ComImport]
+    [Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioSessionManager2
+    {
+        [PreserveSig] int GetAudioSessionControl(IntPtr AudioSessionGuid, uint StreamFlags, out IAudioSessionControl SessionControl);
+        [PreserveSig] int GetSimpleAudioVolume(IntPtr AudioSessionGuid, uint StreamFlags, out ISimpleAudioVolume AudioVolume);
+        [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator SessionEnum);
+        [PreserveSig] int RegisterSessionNotification(IntPtr SessionNotification);
+        [PreserveSig] int UnregisterSessionNotification(IntPtr SessionNotification);
+        [PreserveSig] int RegisterDuckNotification(string sessionID, IntPtr duckNotification);
+        [PreserveSig] int UnregisterDuckNotification(IntPtr duckNotification);
+    }
+
+    [ComImport]
+    [Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioSessionEnumerator
+    {
+        [PreserveSig] int GetCount(out int SessionCount);
+        [PreserveSig] int GetSession(int SessionCount, out IAudioSessionControl Session);
+    }
+
+    [ComImport]
+    [Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioSessionControl
+    {
+        [PreserveSig] int GetState(out int pRetVal);
+        [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+        [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string Value, ref Guid EventContext);
+        [PreserveSig] int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+        [PreserveSig] int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string Value, ref Guid EventContext);
+        [PreserveSig] int GetGroupingParam(out Guid pRetVal);
+        [PreserveSig] int SetGroupingParam(ref Guid Override, ref Guid EventContext);
+        [PreserveSig] int RegisterAudioSessionNotification(IntPtr NewNotifications);
+        [PreserveSig] int UnregisterAudioSessionNotification(IntPtr NewNotifications);
+    }
+
+    [ComImport]
+    [Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioSessionControl2
+    {
+        [PreserveSig] int GetState(out int pRetVal);
+        [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+        [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string Value, ref Guid EventContext);
+        [PreserveSig] int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+        [PreserveSig] int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string Value, ref Guid EventContext);
+        [PreserveSig] int GetGroupingParam(out Guid pRetVal);
+        [PreserveSig] int SetGroupingParam(ref Guid Override, ref Guid EventContext);
+        [PreserveSig] int RegisterAudioSessionNotification(IntPtr NewNotifications);
+        [PreserveSig] int UnregisterAudioSessionNotification(IntPtr NewNotifications);
+        [PreserveSig] int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+        [PreserveSig] int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string pRetVal);
+        [PreserveSig] int GetProcessId(out int pRetVal);
+        [PreserveSig] int IsSystemSoundsSession();
+        [PreserveSig] int SetDuckingPreference([MarshalAs(UnmanagedType.Bool)] bool optOut);
+    }
+
+    [ComImport]
+    [Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface ISimpleAudioVolume
+    {
+        [PreserveSig] int SetMasterVolume(float fLevel, ref Guid EventContext);
+        [PreserveSig] int GetMasterVolume(out float pfLevel);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid EventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
+    }
+
     public sealed class WindowInfo
     {
         public IntPtr Handle { get; set; }
@@ -1983,6 +2367,12 @@ namespace WindowBackRecorder
 
         [DllImport("user32.dll")]
         public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
+
+        [DllImport("ntdll.dll")]
+        public static extern int NtSuspendProcess(IntPtr processHandle);
+
+        [DllImport("ntdll.dll")]
+        public static extern int NtResumeProcess(IntPtr processHandle);
 
         [StructLayout(LayoutKind.Sequential)]
         public struct RECT

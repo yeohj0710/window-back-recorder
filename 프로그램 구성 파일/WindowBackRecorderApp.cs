@@ -40,7 +40,7 @@ namespace WindowBackRecorder
         private readonly DispatcherTimer processTimer = new DispatcherTimer();
 
         private ListView windowList;
-        private ComboBox audioCombo;
+        private TextBlock audioStatusText;
         private TextBox saveFolderBox;
         private TextBox logBox;
         private TextBlock statusText;
@@ -163,7 +163,7 @@ namespace WindowBackRecorder
 
             headerButtons.Children.Add(CreateButton("사용법", OpenUserGuide, "#16212b", "#263546"));
             headerButtons.Children.Add(Spacer(8, 1));
-            headerButtons.Children.Add(CreateButton("소리 설정", OpenSoundMixer, "#16212b", "#263546"));
+            headerButtons.Children.Add(CreateButton("소리 확인", OpenSoundMixer, "#16212b", "#263546"));
             headerButtons.Children.Add(Spacer(8, 1));
             headerButtons.Children.Add(CreateButton("새로고침", delegate { RefreshWindows(); RefreshAudioSources(); }, "#16212b", "#263546"));
 
@@ -250,16 +250,10 @@ namespace WindowBackRecorder
             folderRow.Children.Add(browse);
 
             controls.Children.Add(FormLabel("소리"));
-            audioCombo = new ComboBox
-            {
-                Margin = new Thickness(0, 4, 0, 14),
-                MinHeight = 34,
-                Background = Brush("#f8fafc"),
-                Foreground = Brush("#17212b"),
-                BorderBrush = Brush("#263545"),
-                ItemContainerStyle = CreateComboItemStyle()
-            };
-            controls.Children.Add(audioCombo);
+            audioStatusText = MetaText("기본 출력 소리 자동 녹음");
+            audioStatusText.Margin = new Thickness(0, 4, 0, 14);
+            audioStatusText.Foreground = Brush("#cfe2f5");
+            controls.Children.Add(audioStatusText);
 
             controls.Children.Add(FormLabel("화면 부드러움"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };
@@ -544,28 +538,14 @@ namespace WindowBackRecorder
 
         private void RefreshAudioSources()
         {
-            var sources = new List<AudioOption>();
-            sources.Add(new AudioOption(NoAudioLabel, null));
-
-            var loopbacks = GetLoopbackSources();
-            loopbacks.Sort(delegate(AudioSourceInfo a, AudioSourceInfo b)
+            bool available = IsAudioCaptureAvailable();
+            if (audioStatusText != null)
             {
-                if (a.IsDefault != b.IsDefault) return a.IsDefault ? -1 : 1;
-                return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-            });
-
-            foreach (var source in loopbacks)
-            {
-                string label = source.IsDefault
-                    ? "기본 출력 녹음: " + source.Name + "  (추천)"
-                    : "출력 장치 녹음: " + source.Name;
-                sources.Add(new AudioOption(label, source.Name));
+                audioStatusText.Text = available ? "기본 출력 소리 자동 녹음" : "소리 녹음 준비 안 됨";
+                audioStatusText.Foreground = available ? Brush("#cfe2f5") : Brush("#ffb7c3");
             }
 
-            audioCombo.ItemsSource = sources;
-            audioCombo.DisplayMemberPath = "Label";
-            audioCombo.SelectedIndex = sources.Count > 1 ? 1 : 0;
-            AppendLog("녹음 가능한 출력 장치: " + Math.Max(0, sources.Count - 1).ToString(CultureInfo.InvariantCulture) + "개");
+            AppendLog(available ? "소리 녹음: 기본 출력 자동 사용" : "소리 녹음 준비 안 됨");
         }
 
         private void OnWindowSelected(object sender, SelectionChangedEventArgs e)
@@ -600,8 +580,13 @@ namespace WindowBackRecorder
             if (!Directory.Exists(saveDir)) Directory.CreateDirectory(saveDir);
             SaveSettings(saveDir);
 
-            var audio = audioCombo.SelectedItem as AudioOption;
-            bool hasLoopback = audio != null && !string.IsNullOrEmpty(audio.SourceName);
+            bool hasLoopback = IsAudioCaptureAvailable();
+            if (!hasLoopback)
+            {
+                SetStatus("소리 녹음 준비 안 됨");
+                AppendLog("소리 녹음 파일을 찾지 못했어요. 프로그램 구성 파일을 그대로 둔 상태에서 다시 실행해주세요.");
+                return;
+            }
 
             string baseName = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
             string finalPath = UniquePath(saveDir, baseName, ".mp4");
@@ -615,7 +600,7 @@ namespace WindowBackRecorder
                 ffmpegProcess = StartFfmpegCapture(selectedWindow, videoPath, (int)fpsSlider.Value, cursorToggle.IsChecked == true, !hasLoopback);
                 if (hasLoopback)
                 {
-                    audioProcess = StartLoopbackAudio(audioPath, audio.SourceName, listenToggle.IsChecked == true);
+                    audioProcess = StartLoopbackAudio(audioPath, null, listenToggle.IsChecked == true);
                 }
 
                 activeRecording = new RecordingState
@@ -712,13 +697,16 @@ namespace WindowBackRecorder
                 args.Add(script);
             }
             args.Add(audioPath);
-            args.Add("--source");
-            args.Add(sourceName);
+            if (!string.IsNullOrEmpty(sourceName))
+            {
+                args.Add("--source");
+                args.Add(sourceName);
+            }
             if (monitorOn) args.Add("--monitor-on");
             var process = StartProcess(fileName, args, "[소리] ");
             if (process.WaitForExit(900))
             {
-                throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows에서 소리가 나가는 출력 장치와 같은 항목을 선택해주세요.");
+                throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows 기본 출력 장치와 녹화할 앱의 음소거 상태를 확인해주세요.");
             }
             return process;
         }
@@ -1083,6 +1071,17 @@ namespace WindowBackRecorder
                 File.WriteAllText(settingsPath, json.Serialize(dict), Encoding.UTF8);
             }
             catch { }
+        }
+
+        private bool IsAudioCaptureAvailable()
+        {
+            if (!string.IsNullOrEmpty(GetAudioHelperPath())) return true;
+
+            string script = Path.Combine(supportDir, "loopback_audio_recorder.py");
+            if (File.Exists(script)) return true;
+
+            script = Path.Combine(appDir, "loopback_audio_recorder.py");
+            return File.Exists(script);
         }
 
         private List<AudioSourceInfo> GetLoopbackSources()

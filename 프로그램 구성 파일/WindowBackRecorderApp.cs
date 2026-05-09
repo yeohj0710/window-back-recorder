@@ -265,9 +265,15 @@ namespace WindowBackRecorder
 
             controls.Children.Add(FormLabel("소리"));
             audioStatusText = MetaText("선택한 앱 소리만 자동 녹음");
-            audioStatusText.Margin = new Thickness(0, 4, 0, 14);
+            audioStatusText.Margin = new Thickness(0, 4, 0, 6);
             audioStatusText.Foreground = Brush("#cfe2f5");
             controls.Children.Add(audioStatusText);
+
+            var audioWarningText = MetaText("대상 앱 안에서 소리를 끄면 녹음도 안 될 수 있어요");
+            audioWarningText.Margin = new Thickness(0, 0, 0, 14);
+            audioWarningText.Foreground = Brush("#ffd58a");
+            audioWarningText.TextWrapping = TextWrapping.Wrap;
+            controls.Children.Add(audioWarningText);
 
             controls.Children.Add(FormLabel("화면 부드러움"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };

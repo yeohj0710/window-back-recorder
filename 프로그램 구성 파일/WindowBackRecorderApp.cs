@@ -243,8 +243,15 @@ namespace WindowBackRecorder
             Grid.SetColumn(rightPanel, 1);
             main.Children.Add(rightPanel);
 
+            var controlScroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled
+            };
+            rightPanel.Child = controlScroll;
+
             var controls = new StackPanel();
-            rightPanel.Child = controls;
+            controlScroll.Content = controls;
 
             controls.Children.Add(SectionLabel("녹화 설정"));
             controls.Children.Add(FormLabel("저장 폴더"));
@@ -269,7 +276,7 @@ namespace WindowBackRecorder
             audioStatusText.Foreground = Brush("#cfe2f5");
             controls.Children.Add(audioStatusText);
 
-            var audioWarningText = MetaText("대상 앱 안에서 소리를 끄면 녹음도 안 될 수 있어요");
+            var audioWarningText = MetaText("재생 소리를 끄는 기능은 아직 없어요. 대상 앱을 음소거하면 녹음도 안 될 수 있어요");
             audioWarningText.Margin = new Thickness(0, 0, 0, 14);
             audioWarningText.Foreground = Brush("#ffd58a");
             audioWarningText.TextWrapping = TextWrapping.Wrap;
@@ -289,7 +296,7 @@ namespace WindowBackRecorder
             Grid.SetColumn(fpsValue, 1);
             fpsRow.Children.Add(fpsValue);
 
-            cursorToggle = CreateToggle("마우스 커서도 녹화", true);
+            cursorToggle = CreateSwitchToggle("마우스 커서도 녹화", true);
             controls.Children.Add(cursorToggle);
 
             listenToggle = CreateToggle("내 스피커로 듣기", false);
@@ -455,6 +462,20 @@ namespace WindowBackRecorder
             return toggle;
         }
 
+        private ToggleButton CreateSwitchToggle(string text, bool isChecked)
+        {
+            var toggle = new ToggleButton
+            {
+                Content = text,
+                IsChecked = isChecked,
+                Height = 34,
+                Margin = new Thickness(0, 0, 0, 8),
+                Style = CreateSwitchStyle(),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            return toggle;
+        }
+
         private Button CreateSmallButton(string text, Action action)
         {
             var button = CreateButton(text, action, "#16212b", "#263546");
@@ -538,6 +559,41 @@ namespace WindowBackRecorder
             return style;
         }
 
+        private Style CreateSwitchStyle()
+        {
+            var style = new Style(typeof(ToggleButton));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#13202b")));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#dce5ee")));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2b3a49")));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
+            style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            style.Setters.Add(new Setter(Control.TemplateProperty, CreateSwitchTemplate()));
+
+            var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
+            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#1e6bff")));
+            checkedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            checkedTrigger.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#35d0c2"), "SwitchTrack"));
+            checkedTrigger.Setters.Add(new Setter(System.Windows.Shapes.Ellipse.FillProperty, Brush("#ffffff"), "SwitchThumb"));
+            checkedTrigger.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Right, "SwitchThumb"));
+            style.Triggers.Add(checkedTrigger);
+
+            var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+            over.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#4aa3d8")));
+            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            style.Triggers.Add(over);
+
+            var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+            disabled.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#18222c")));
+            disabled.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#9fb1c4")));
+            disabled.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2b3a49")));
+            disabled.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#2a3440"), "SwitchTrack"));
+            disabled.Setters.Add(new Setter(System.Windows.Shapes.Ellipse.FillProperty, Brush("#7f91a5"), "SwitchThumb"));
+            disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 1.0));
+            style.Triggers.Add(disabled);
+
+            return style;
+        }
+
         private ControlTemplate CreateButtonTemplate()
         {
             var border = new FrameworkElementFactory(typeof(Border));
@@ -554,6 +610,50 @@ namespace WindowBackRecorder
             border.AppendChild(content);
 
             return new ControlTemplate(typeof(ButtonBase)) { VisualTree = border };
+        }
+
+        private ControlTemplate CreateSwitchTemplate()
+        {
+            var outer = new FrameworkElementFactory(typeof(Border));
+            outer.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+            outer.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+            outer.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            outer.SetValue(Border.SnapsToDevicePixelsProperty, true);
+
+            var dock = new FrameworkElementFactory(typeof(DockPanel));
+            dock.SetValue(FrameworkElement.MarginProperty, new Thickness(10, 0, 10, 0));
+            outer.AppendChild(dock);
+
+            var track = new FrameworkElementFactory(typeof(Border));
+            track.Name = "SwitchTrack";
+            track.SetValue(DockPanel.DockProperty, Dock.Right);
+            track.SetValue(FrameworkElement.WidthProperty, 42.0);
+            track.SetValue(FrameworkElement.HeightProperty, 20.0);
+            track.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Right);
+            track.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            track.SetValue(FrameworkElement.MarginProperty, new Thickness(10, 0, 0, 0));
+            track.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+            track.SetValue(Border.BackgroundProperty, Brush("#344252"));
+            track.SetValue(Border.BorderBrushProperty, Brush("#4b5d70"));
+            track.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            dock.AppendChild(track);
+
+            var thumb = new FrameworkElementFactory(typeof(System.Windows.Shapes.Ellipse));
+            thumb.Name = "SwitchThumb";
+            thumb.SetValue(FrameworkElement.WidthProperty, 14.0);
+            thumb.SetValue(FrameworkElement.HeightProperty, 14.0);
+            thumb.SetValue(FrameworkElement.MarginProperty, new Thickness(3));
+            thumb.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+            thumb.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+            thumb.SetValue(System.Windows.Shapes.Shape.FillProperty, Brush("#c3cfdb"));
+            track.AppendChild(thumb);
+
+            var content = new FrameworkElementFactory(typeof(ContentPresenter));
+            content.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            content.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
+            dock.AppendChild(content);
+
+            return new ControlTemplate(typeof(ToggleButton)) { VisualTree = outer };
         }
 
         private FrameworkElement Spacer(double width, double height)

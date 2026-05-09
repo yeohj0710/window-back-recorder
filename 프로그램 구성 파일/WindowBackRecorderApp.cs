@@ -575,11 +575,9 @@ namespace WindowBackRecorder
             style.Setters.Add(new Setter(Control.TemplateProperty, CreateSwitchTemplate()));
 
             var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
-            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#1e6bff")));
+            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#163044")));
             checkedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
-            checkedTrigger.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#35d0c2"), "SwitchTrack"));
-            checkedTrigger.Setters.Add(new Setter(System.Windows.Shapes.Ellipse.FillProperty, Brush("#ffffff"), "SwitchThumb"));
-            checkedTrigger.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Right, "SwitchThumb"));
+            checkedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#4aa3d8")));
             style.Triggers.Add(checkedTrigger);
 
             var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
@@ -591,8 +589,6 @@ namespace WindowBackRecorder
             disabled.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#18222c")));
             disabled.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#9fb1c4")));
             disabled.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2b3a49")));
-            disabled.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#2a3440"), "SwitchTrack"));
-            disabled.Setters.Add(new Setter(System.Windows.Shapes.Ellipse.FillProperty, Brush("#7f91a5"), "SwitchThumb"));
             disabled.Setters.Add(new Setter(UIElement.OpacityProperty, 1.0));
             style.Triggers.Add(disabled);
 
@@ -658,7 +654,22 @@ namespace WindowBackRecorder
             content.SetValue(ContentPresenter.RecognizesAccessKeyProperty, true);
             dock.AppendChild(content);
 
-            return new ControlTemplate(typeof(ToggleButton)) { VisualTree = outer };
+            var template = new ControlTemplate(typeof(ToggleButton)) { VisualTree = outer };
+
+            var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
+            checkedTrigger.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#35d0c2"), "SwitchTrack"));
+            checkedTrigger.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#35d0c2"), "SwitchTrack"));
+            checkedTrigger.Setters.Add(new Setter(System.Windows.Shapes.Ellipse.FillProperty, Brush("#ffffff"), "SwitchThumb"));
+            checkedTrigger.Setters.Add(new Setter(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Right, "SwitchThumb"));
+            template.Triggers.Add(checkedTrigger);
+
+            var disabledTrigger = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+            disabledTrigger.Setters.Add(new Setter(Border.BackgroundProperty, Brush("#2a3440"), "SwitchTrack"));
+            disabledTrigger.Setters.Add(new Setter(Border.BorderBrushProperty, Brush("#344252"), "SwitchTrack"));
+            disabledTrigger.Setters.Add(new Setter(System.Windows.Shapes.Ellipse.FillProperty, Brush("#7f91a5"), "SwitchThumb"));
+            template.Triggers.Add(disabledTrigger);
+
+            return template;
         }
 
         private FrameworkElement Spacer(double width, double height)

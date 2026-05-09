@@ -89,16 +89,16 @@ namespace WindowBackRecorder
                 Icon = BitmapFrame.Create(new Uri(iconPath, UriKind.Absolute));
             }
             var workArea = WinForms.Screen.PrimaryScreen.WorkingArea;
-            Width = Math.Min(880, Math.Max(760, workArea.Width - 160));
-            Height = Math.Min(740, Math.Max(640, workArea.Height - 80));
-            MinWidth = 760;
-            MinHeight = 640;
+            Width = Math.Min(1160, Math.Max(1040, workArea.Width - 120));
+            Height = Math.Min(820, Math.Max(720, workArea.Height - 80));
+            MinWidth = Math.Min(1040, workArea.Width - 40);
+            MinHeight = Math.Min(720, workArea.Height - 40);
             WindowStartupLocation = WindowStartupLocation.Manual;
             Left = workArea.Left + 40;
             Top = workArea.Top + 40;
-            Background = Brush("#0b0f14");
+            Background = Brush("#edf1f6");
             FontFamily = new FontFamily("Segoe UI");
-            Foreground = Brush("#e8edf2");
+            Foreground = Brush("#111827");
 
             BuildUi();
             LoadSettings();
@@ -123,10 +123,10 @@ namespace WindowBackRecorder
 
             var header = new Border
             {
-                Background = Brush("#10161d"),
-                BorderBrush = Brush("#1c2733"),
+                Background = Brush("#f8fafc"),
+                BorderBrush = Brush("#d9e2ec"),
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(22, 18, 22, 16)
+                Padding = new Thickness(32, 22, 32, 22)
             };
             Grid.SetRow(header, 0);
             root.Children.Add(header);
@@ -149,9 +149,9 @@ namespace WindowBackRecorder
             var title = new TextBlock
             {
                 Text = "백그라운드 영상 녹화 프로그램",
-                FontSize = 23,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = Brush("#f5f7fa"),
+                FontSize = 30,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brush("#111827"),
                 VerticalAlignment = VerticalAlignment.Center
             };
             titleRow.Children.Add(title);
@@ -160,9 +160,9 @@ namespace WindowBackRecorder
             statusText = new TextBlock
             {
                 Text = "준비됨",
-                Margin = new Thickness(0, 6, 0, 0),
-                FontSize = 13,
-                Foreground = Brush("#8da2b8")
+                Margin = new Thickness(0, 8, 0, 0),
+                FontSize = 14,
+                Foreground = Brush("#475569")
             };
             titleStack.Children.Add(statusText);
 
@@ -170,15 +170,15 @@ namespace WindowBackRecorder
             Grid.SetColumn(headerButtons, 1);
             headerGrid.Children.Add(headerButtons);
 
-            headerButtons.Children.Add(CreateButton("사용법", OpenUserGuide, "#16212b", "#263546"));
+            headerButtons.Children.Add(CreateButton("사용법", OpenUserGuide, "#eef4ff", "#dbeafe"));
             headerButtons.Children.Add(Spacer(8, 1));
-            headerButtons.Children.Add(CreateButton("소리 확인", OpenSoundMixer, "#16212b", "#263546"));
+            headerButtons.Children.Add(CreateButton("소리 확인", OpenSoundMixer, "#eef4ff", "#dbeafe"));
             headerButtons.Children.Add(Spacer(8, 1));
-            headerButtons.Children.Add(CreateButton("새로고침", delegate { RefreshWindows(); RefreshAudioSources(); }, "#16212b", "#263546"));
+            headerButtons.Children.Add(CreateButton("새로고침", delegate { RefreshWindows(); RefreshAudioSources(); }, "#eef4ff", "#dbeafe"));
 
-            var main = new Grid { Margin = new Thickness(12) };
+            var main = new Grid { Margin = new Thickness(24) };
             main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(270) });
+            main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(340) });
             Grid.SetRow(main, 1);
             root.Children.Add(main);
 
@@ -201,7 +201,7 @@ namespace WindowBackRecorder
                 Text = "녹화할 창",
                 FontSize = 18,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = Brush("#f2f5f8"),
+                Foreground = Brush("#111827"),
                 VerticalAlignment = VerticalAlignment.Center
             });
 
@@ -209,7 +209,7 @@ namespace WindowBackRecorder
             {
                 Text = "창을 선택해주세요",
                 FontSize = 12,
-                Foreground = Brush("#7f91a5"),
+                Foreground = Brush("#64748b"),
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(targetText, 1);
@@ -223,9 +223,9 @@ namespace WindowBackRecorder
 
             windowList = new ListView
             {
-                Background = Brush("#0d131a"),
-                Foreground = Brush("#dfe7ef"),
-                BorderBrush = Brush("#202c38"),
+                Background = Brush("#ffffff"),
+                Foreground = Brush("#111827"),
+                BorderBrush = Brush("#d9e2ec"),
                 BorderThickness = new Thickness(1),
                 SelectionMode = SelectionMode.Single
             };
@@ -276,16 +276,16 @@ namespace WindowBackRecorder
             controls.Children.Add(FormLabel("소리"));
             audioStatusText = MetaText("선택한 앱 소리만 자동 녹음");
             audioStatusText.Margin = new Thickness(0, 4, 0, 6);
-            audioStatusText.Foreground = Brush("#cfe2f5");
+            audioStatusText.Foreground = Brush("#1d4ed8");
             controls.Children.Add(audioStatusText);
 
             var audioWarningText = MetaText("재생 소리를 끄는 기능은 아직 없어요. 대상 앱을 음소거하면 녹음도 안 될 수 있어요");
             audioWarningText.Margin = new Thickness(0, 0, 0, 14);
-            audioWarningText.Foreground = Brush("#ffd58a");
+            audioWarningText.Foreground = Brush("#b45309");
             audioWarningText.TextWrapping = TextWrapping.Wrap;
             controls.Children.Add(audioWarningText);
 
-            var silentHelpButton = CreateButton("무음 녹화 도움", OpenSilentRecordingHelp, "#13202b", "#263546");
+            var silentHelpButton = CreateButton("무음 녹화 도움", OpenSilentRecordingHelp, "#eef4ff", "#dbeafe");
             silentHelpButton.Height = 34;
             silentHelpButton.Margin = new Thickness(0, 0, 0, 14);
             controls.Children.Add(silentHelpButton);
@@ -299,7 +299,7 @@ namespace WindowBackRecorder
             fpsSlider = new Slider { Minimum = 5, Maximum = 60, Value = 30, TickFrequency = 5, IsSnapToTickEnabled = true };
             Grid.SetColumn(fpsSlider, 0);
             fpsRow.Children.Add(fpsSlider);
-            var fpsValue = new TextBlock { Foreground = Brush("#9fb1c4"), VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right };
+            var fpsValue = new TextBlock { Foreground = Brush("#64748b"), VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right };
             fpsValue.SetBinding(TextBlock.TextProperty, new Binding("Value") { Source = fpsSlider, StringFormat = "{0:0} fps" });
             Grid.SetColumn(fpsValue, 1);
             fpsRow.Children.Add(fpsValue);
@@ -321,7 +321,7 @@ namespace WindowBackRecorder
             Grid.SetColumn(startButton, 0);
             buttonGrid.Children.Add(startButton);
 
-            stopButton = CreateButton("녹화 종료", StopRecordingFromUi, "#3a2027", "#60313a");
+            stopButton = CreateButton("녹화 종료", StopRecordingFromUi, "#be123c", "#9f1239");
             stopButton.Height = 44;
             stopButton.IsEnabled = false;
             Grid.SetColumn(stopButton, 2);
@@ -343,8 +343,8 @@ namespace WindowBackRecorder
 
             var footer = new Border
             {
-                Background = Brush("#080c10"),
-                BorderBrush = Brush("#1c2733"),
+                Background = Brush("#edf1f6"),
+                BorderBrush = Brush("#d9e2ec"),
                 BorderThickness = new Thickness(0, 1, 0, 0),
                 Padding = new Thickness(20, 12, 20, 12)
             };
@@ -353,9 +353,9 @@ namespace WindowBackRecorder
 
             logBox = new TextBox
             {
-                Height = 82,
-                Background = Brush("#080c10"),
-                Foreground = Brush("#8fa3b8"),
+                Height = 96,
+                Background = Brush("#101827"),
+                Foreground = Brush("#e2e8f0"),
                 BorderThickness = new Thickness(0),
                 IsReadOnly = true,
                 TextWrapping = TextWrapping.NoWrap,
@@ -370,11 +370,11 @@ namespace WindowBackRecorder
         {
             return new Border
             {
-                Background = Brush("#10161d"),
-                BorderBrush = Brush("#202b37"),
+                Background = Brush("#ffffff"),
+                BorderBrush = Brush("#d9e2ec"),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(16)
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(18)
             };
         }
 
@@ -382,19 +382,18 @@ namespace WindowBackRecorder
         {
             return new Border
             {
-                Margin = new Thickness(14, 3, 0, 0),
+                Margin = new Thickness(14, 4, 0, 0),
                 Padding = new Thickness(10, 4, 10, 5),
-                Background = Brush("#11272b"),
-                BorderBrush = Brush("#2a7b72"),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(12),
+                Background = Brush("#eaf2ff"),
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(6),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = new TextBlock
                 {
                     Text = DeveloperLabel,
                     FontSize = 11,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = Brush("#87eadc"),
+                    Foreground = Brush("#2563eb"),
                     VerticalAlignment = VerticalAlignment.Center
                 }
             };
@@ -405,10 +404,10 @@ namespace WindowBackRecorder
             return new TextBlock
             {
                 Text = text,
-                Foreground = Brush("#f2f5f8"),
-                FontSize = 16,
-                FontWeight = FontWeights.SemiBold,
-                Margin = new Thickness(0, 0, 0, 10)
+                Foreground = Brush("#111827"),
+                FontSize = 18,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 12)
             };
         }
 
@@ -417,8 +416,8 @@ namespace WindowBackRecorder
             return new TextBlock
             {
                 Text = text,
-                Foreground = Brush("#93a6ba"),
-                FontSize = 12,
+                Foreground = Brush("#334155"),
+                FontSize = 13,
                 Margin = new Thickness(0, 0, 0, 2)
             };
         }
@@ -428,8 +427,8 @@ namespace WindowBackRecorder
             return new TextBlock
             {
                 Text = text,
-                Foreground = Brush("#9fb1c4"),
-                FontSize = 12,
+                Foreground = Brush("#64748b"),
+                FontSize = 13,
                 Margin = new Thickness(0, 5, 0, 0),
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
@@ -449,9 +448,9 @@ namespace WindowBackRecorder
             return new TextBox
             {
                 Height = 34,
-                Background = Brush("#0d131a"),
-                Foreground = Brush("#e8edf2"),
-                BorderBrush = Brush("#263545"),
+                Background = Brush("#ffffff"),
+                Foreground = Brush("#111827"),
+                BorderBrush = Brush("#cbd5e1"),
                 Padding = new Thickness(10, 6, 10, 6)
             };
         }
@@ -466,11 +465,11 @@ namespace WindowBackRecorder
        TargetType=""{x:Type ScrollBar}"">
   <Setter Property=""Width"" Value=""8""/>
   <Setter Property=""MinWidth"" Value=""8""/>
-  <Setter Property=""Background"" Value=""#0b1118""/>
+  <Setter Property=""Background"" Value=""#edf1f6""/>
   <Setter Property=""Template"">
     <Setter.Value>
       <ControlTemplate TargetType=""{x:Type ScrollBar}"">
-        <Border Background=""#0b1118"">
+        <Border Background=""#edf1f6"">
           <Track x:Name=""PART_Track"" IsDirectionReversed=""True"">
             <Track.DecreaseRepeatButton>
               <RepeatButton Command=""{x:Static ScrollBar.PageUpCommand}"" Opacity=""0"" Focusable=""False""/>
@@ -479,7 +478,7 @@ namespace WindowBackRecorder
               <Thumb MinHeight=""36"">
                 <Thumb.Template>
                   <ControlTemplate TargetType=""{x:Type Thumb}"">
-                    <Border Width=""6"" Margin=""1"" CornerRadius=""3"" Background=""#405162""/>
+                    <Border Width=""6"" Margin=""1"" CornerRadius=""3"" Background=""#94a3b8""/>
                   </ControlTemplate>
                 </Thumb.Template>
               </Thumb>
@@ -534,7 +533,7 @@ namespace WindowBackRecorder
 
         private Button CreateSmallButton(string text, Action action)
         {
-            var button = CreateButton(text, action, "#16212b", "#263546");
+            var button = CreateButton(text, action, "#eef4ff", "#dbeafe");
             button.Height = 34;
             button.Margin = new Thickness(0, 0, 8, 8);
             return button;
@@ -557,16 +556,20 @@ namespace WindowBackRecorder
 
         private Style CreateButtonStyle(string background, string hover)
         {
+            bool lightButton = IsLightColor(background);
+            Brush normalText = lightButton ? Brush("#1d4ed8") : Brush("#f5f7fa");
+            Brush hoverText = lightButton ? Brush("#1e3a8a") : Brush("#ffffff");
+
             var style = new Style(typeof(Button));
             style.Setters.Add(new Setter(Control.BackgroundProperty, Brush(background)));
-            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#f5f7fa")));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, normalText));
             style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush(hover)));
             style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
             style.Setters.Add(new Setter(Control.TemplateProperty, CreateButtonTemplate()));
 
             var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
             over.Setters.Add(new Setter(Control.BackgroundProperty, Brush(hover)));
-            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            over.Setters.Add(new Setter(Control.ForegroundProperty, hoverText));
             style.Triggers.Add(over);
 
             var pressed = new Trigger { Property = ButtonBase.IsPressedProperty, Value = true };
@@ -584,25 +587,39 @@ namespace WindowBackRecorder
             return style;
         }
 
+        private bool IsLightColor(string hex)
+        {
+            try
+            {
+                Color color = (Color)ColorConverter.ConvertFromString(hex);
+                double brightness = (color.R * 299 + color.G * 587 + color.B * 114) / 1000.0;
+                return brightness > 185;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private Style CreateToggleStyle()
         {
             var style = new Style(typeof(ToggleButton));
-            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#111a23")));
-            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#dce5ee")));
-            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#263545")));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#f8fafc")));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#111827")));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#cbd5e1")));
             style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
             style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
             style.Setters.Add(new Setter(Control.TemplateProperty, CreateButtonTemplate()));
 
             var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
-            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#163044")));
-            checkedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#f0fbff")));
-            checkedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#4aa3d8")));
+            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#eaf2ff")));
+            checkedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#1d4ed8")));
+            checkedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2563eb")));
             style.Triggers.Add(checkedTrigger);
 
             var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            over.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#1b2b3a")));
-            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            over.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#eef4ff")));
+            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#1d4ed8")));
             style.Triggers.Add(over);
 
             var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
@@ -618,22 +635,22 @@ namespace WindowBackRecorder
         private Style CreateSwitchStyle()
         {
             var style = new Style(typeof(ToggleButton));
-            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#13202b")));
-            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#dce5ee")));
-            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2b3a49")));
+            style.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#f8fafc")));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#111827")));
+            style.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#cbd5e1")));
             style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
             style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
             style.Setters.Add(new Setter(Control.TemplateProperty, CreateSwitchTemplate()));
 
             var checkedTrigger = new Trigger { Property = ToggleButton.IsCheckedProperty, Value = true };
-            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#163044")));
-            checkedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
-            checkedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#4aa3d8")));
+            checkedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#eaf2ff")));
+            checkedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#1d4ed8")));
+            checkedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2563eb")));
             style.Triggers.Add(checkedTrigger);
 
             var over = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            over.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#4aa3d8")));
-            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
+            over.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2563eb")));
+            over.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#1d4ed8")));
             style.Triggers.Add(over);
 
             var disabled = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
@@ -652,6 +669,7 @@ namespace WindowBackRecorder
             border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
             border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
             border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+            border.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
             border.SetValue(Border.SnapsToDevicePixelsProperty, true);
 
             var content = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -686,8 +704,8 @@ namespace WindowBackRecorder
             track.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
             track.SetValue(FrameworkElement.MarginProperty, new Thickness(10, 0, 0, 0));
             track.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
-            track.SetValue(Border.BackgroundProperty, Brush("#344252"));
-            track.SetValue(Border.BorderBrushProperty, Brush("#4b5d70"));
+            track.SetValue(Border.BackgroundProperty, Brush("#cbd5e1"));
+            track.SetValue(Border.BorderBrushProperty, Brush("#cbd5e1"));
             track.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             dock.AppendChild(track);
 
@@ -699,7 +717,7 @@ namespace WindowBackRecorder
             thumb.SetValue(FrameworkElement.HorizontalAlignmentProperty, HorizontalAlignment.Left);
             thumb.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
             thumb.SetValue(UIElement.RenderTransformProperty, new TranslateTransform(0, 0));
-            thumb.SetValue(System.Windows.Shapes.Shape.FillProperty, Brush("#c3cfdb"));
+            thumb.SetValue(System.Windows.Shapes.Shape.FillProperty, Brush("#ffffff"));
             track.AppendChild(thumb);
 
             var content = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -751,7 +769,7 @@ namespace WindowBackRecorder
         {
             var textBlock = new FrameworkElementFactory(typeof(TextBlock));
             textBlock.SetBinding(TextBlock.TextProperty, new Binding(path));
-            textBlock.SetValue(TextBlock.ForegroundProperty, Brush("#e8f5ff"));
+            textBlock.SetValue(TextBlock.ForegroundProperty, Brush("#111827"));
             textBlock.SetValue(TextBlock.PaddingProperty, new Thickness(8, 0, 8, 0));
             textBlock.SetValue(TextBlock.TextTrimmingProperty, TextTrimming.CharacterEllipsis);
             textBlock.SetValue(TextBlock.VerticalAlignmentProperty, VerticalAlignment.Center);
@@ -769,20 +787,20 @@ namespace WindowBackRecorder
             var itemStyle = new Style(typeof(ListViewItem));
             itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(0, 7, 0, 7)));
             itemStyle.Setters.Add(new Setter(Control.MarginProperty, new Thickness(0, 0, 0, 1)));
-            itemStyle.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#0d131a")));
-            itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#dfe7ef")));
-            itemStyle.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#0d131a")));
+            itemStyle.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#ffffff")));
+            itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#111827")));
+            itemStyle.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#ffffff")));
             itemStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
 
             var selectedTrigger = new Trigger { Property = ListViewItem.IsSelectedProperty, Value = true };
-            selectedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#173a52")));
-            selectedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#ffffff")));
-            selectedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#45b8e8")));
+            selectedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#dbeafe")));
+            selectedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brush("#111827")));
+            selectedTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2563eb")));
             itemStyle.Triggers.Add(selectedTrigger);
 
             var mouseOverTrigger = new Trigger { Property = ListViewItem.IsMouseOverProperty, Value = true };
-            mouseOverTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#132434")));
-            mouseOverTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#2f5f7d")));
+            mouseOverTrigger.Setters.Add(new Setter(Control.BackgroundProperty, Brush("#f1f5f9")));
+            mouseOverTrigger.Setters.Add(new Setter(Control.BorderBrushProperty, Brush("#bfdbfe")));
             itemStyle.Triggers.Add(mouseOverTrigger);
 
             list.ItemContainerStyle = itemStyle;
@@ -852,7 +870,7 @@ namespace WindowBackRecorder
             if (audioStatusText != null)
             {
                 audioStatusText.Text = available ? "선택한 앱 소리만 자동 녹음" : "소리 녹음 준비 안 됨";
-                audioStatusText.Foreground = available ? Brush("#cfe2f5") : Brush("#ffb7c3");
+                audioStatusText.Foreground = available ? Brush("#1d4ed8") : Brush("#be123c");
             }
 
             AppendLog(available ? "소리 녹음: 선택한 앱 우선 사용" : "소리 녹음 준비 안 됨");
@@ -899,9 +917,7 @@ namespace WindowBackRecorder
             bool hasLoopback = IsAudioCaptureAvailable();
             if (!hasLoopback)
             {
-                SetStatus("소리 녹음 준비 안 됨");
-                AppendLog("소리 녹음 파일을 찾지 못했어요. 프로그램 구성 파일을 그대로 둔 상태에서 다시 실행해주세요.");
-                return;
+                AppendLog("소리 녹음 준비 안 됨. 화면만 녹화합니다.");
             }
 
             string baseName = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss", CultureInfo.InvariantCulture);
@@ -914,24 +930,43 @@ namespace WindowBackRecorder
             try
             {
                 ffmpegProcess = StartFfmpegCapture(selectedWindow, videoPath, (int)fpsSlider.Value, cursorToggle.IsChecked == true, !hasLoopback);
+                bool audioStarted = false;
                 if (hasLoopback)
                 {
-                    audioProcess = StartTargetAudio(audioPath, selectedWindow.ProcessId);
+                    try
+                    {
+                        audioProcess = StartTargetAudio(audioPath, selectedWindow.ProcessId);
+                        audioStarted = true;
+                    }
+                    catch (Exception audioEx)
+                    {
+                        AppendLog("선택한 앱 소리 녹음 실패: " + audioEx.Message);
+                        try
+                        {
+                            AppendLog("PC 전체 소리 녹음으로 한 번 더 시도합니다.");
+                            audioProcess = StartLoopbackAudio(audioPath, null, false);
+                            audioStarted = true;
+                        }
+                        catch (Exception fallbackEx)
+                        {
+                            AppendLog("소리 녹음 없이 화면 녹화를 계속합니다: " + fallbackEx.Message);
+                        }
+                    }
                 }
 
                 activeRecording = new RecordingState
                 {
                     FinalPath = finalPath,
                     VideoPath = videoPath,
-                    AudioPath = audioPath,
-                    HasLoopbackAudio = hasLoopback
+                    AudioPath = audioStarted ? audioPath : null,
+                    HasLoopbackAudio = audioStarted
                 };
 
                 startButton.IsEnabled = false;
                 stopButton.IsEnabled = true;
                 saveFolderBox.IsEnabled = false;
                 outputText.Text = "저장 파일: " + finalPath;
-                SetStatus("녹화 중");
+                SetStatus(audioStarted ? "녹화 중" : "화면 녹화 중");
                 AppendLog("녹화 시작: " + finalPath);
             }
             catch (Exception ex)
@@ -1131,6 +1166,10 @@ namespace WindowBackRecorder
                     {
                         MuxRecording(recording);
                     }
+                    else if (recording != null)
+                    {
+                        FinalizeVideoOnlyRecording(recording);
+                    }
                 }
                 finally
                 {
@@ -1232,6 +1271,67 @@ namespace WindowBackRecorder
             catch (Exception ex)
             {
                 QueueUiLog("파일을 합치지 못했어요: " + ex.Message);
+            }
+        }
+
+        private void FinalizeVideoOnlyRecording(RecordingState recording)
+        {
+            try
+            {
+                if (IsSamePath(recording.VideoPath, recording.FinalPath))
+                {
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        outputText.Text = "저장 파일: " + recording.FinalPath;
+                        AppendLog("저장 완료: " + recording.FinalPath);
+                    }));
+                    return;
+                }
+
+                QueueUiLog("영상 파일을 저장하는 중...");
+                var args = new List<string>();
+                args.Add("-hide_banner");
+                args.Add("-y");
+                args.Add("-i");
+                args.Add(recording.VideoPath);
+                args.Add("-map");
+                args.Add("0:v:0");
+                args.Add("-c:v");
+                args.Add("copy");
+                args.Add("-movflags");
+                args.Add("+faststart");
+                args.Add(recording.FinalPath);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = GetFfmpegPath(),
+                    Arguments = JoinArgs(args),
+                    WorkingDirectory = supportDir,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+                var proc = Process.Start(psi);
+                string err = proc.StandardError.ReadToEnd();
+                proc.WaitForExit();
+
+                if (proc.ExitCode == 0)
+                {
+                    TryDelete(recording.VideoPath);
+                    Dispatcher.BeginInvoke(new Action(delegate
+                    {
+                        outputText.Text = "저장 파일: " + recording.FinalPath;
+                        AppendLog("저장 완료: " + recording.FinalPath);
+                    }));
+                }
+                else
+                {
+                    QueueUiLog("영상 파일을 저장하지 못했어요: " + err);
+                }
+            }
+            catch (Exception ex)
+            {
+                QueueUiLog("영상 파일을 저장하지 못했어요: " + ex.Message);
             }
         }
 

@@ -1,0 +1,5 @@
+numpy>=1.24
+soundcard>=0.4.6
+pywin32>=306
+psutil>=5.9
+Pillow>=10

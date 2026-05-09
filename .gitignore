@@ -1,0 +1,7 @@
+recordings/
+settings.json
+__pycache__/
+*.py[cod]
+*.video.mkv
+*.audio.wav
+*.log

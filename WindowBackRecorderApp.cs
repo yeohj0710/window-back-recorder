@@ -58,14 +58,14 @@ namespace WindowBackRecorder
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
 
-        private const string NoAudioLabel = "No audio";
+        private const string NoAudioLabel = "소리 없이 녹화";
 
         public MainWindow()
         {
             appDir = AppDomain.CurrentDomain.BaseDirectory;
             settingsPath = Path.Combine(appDir, "settings.json");
 
-            Title = "Window Back Recorder";
+            Title = "창 뒤 녹화기";
             Width = 1180;
             Height = 760;
             MinWidth = 980;
@@ -116,7 +116,7 @@ namespace WindowBackRecorder
 
             var title = new TextBlock
             {
-                Text = "Window Back Recorder",
+                Text = "창 뒤 녹화기",
                 FontSize = 25,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brush("#f5f7fa")
@@ -125,7 +125,7 @@ namespace WindowBackRecorder
 
             statusText = new TextBlock
             {
-                Text = "Ready",
+                Text = "준비됨",
                 Margin = new Thickness(0, 6, 0, 0),
                 FontSize = 13,
                 Foreground = Brush("#8da2b8")
@@ -136,9 +136,9 @@ namespace WindowBackRecorder
             Grid.SetColumn(headerButtons, 1);
             headerGrid.Children.Add(headerButtons);
 
-            headerButtons.Children.Add(CreateButton("Sound mixer", OpenSoundMixer, "#16212b", "#263546"));
+            headerButtons.Children.Add(CreateButton("소리 설정", OpenSoundMixer, "#16212b", "#263546"));
             headerButtons.Children.Add(Spacer(10, 1));
-            headerButtons.Children.Add(CreateButton("Refresh", delegate { RefreshWindows(); RefreshAudioSources(); }, "#16212b", "#263546"));
+            headerButtons.Children.Add(CreateButton("새로고침", delegate { RefreshWindows(); RefreshAudioSources(); }, "#16212b", "#263546"));
 
             var main = new Grid { Margin = new Thickness(20) };
             main.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -161,7 +161,7 @@ namespace WindowBackRecorder
 
             listHeader.Children.Add(new TextBlock
             {
-                Text = "Target window",
+                Text = "녹화할 창",
                 FontSize = 18,
                 FontWeight = FontWeights.SemiBold,
                 Foreground = Brush("#f2f5f8"),
@@ -170,7 +170,7 @@ namespace WindowBackRecorder
 
             targetText = new TextBlock
             {
-                Text = "No target selected",
+                Text = "창을 선택해주세요",
                 FontSize = 12,
                 Foreground = Brush("#7f91a5"),
                 VerticalAlignment = VerticalAlignment.Center
@@ -192,10 +192,10 @@ namespace WindowBackRecorder
             leftDock.Children.Add(windowList);
 
             var gridView = new GridView();
-            gridView.Columns.Add(CreateColumn("Title", "Title", 520));
-            gridView.Columns.Add(CreateColumn("App", "ProcessName", 150));
-            gridView.Columns.Add(CreateColumn("Size", "SizeText", 110));
-            gridView.Columns.Add(CreateColumn("HWND", "HandleText", 110));
+            gridView.Columns.Add(CreateColumn("창 제목", "Title", 520));
+            gridView.Columns.Add(CreateColumn("프로그램", "ProcessName", 150));
+            gridView.Columns.Add(CreateColumn("크기", "SizeText", 110));
+            gridView.Columns.Add(CreateColumn("핸들", "HandleText", 110));
             windowList.View = gridView;
 
             var rightPanel = CreatePanel();
@@ -206,8 +206,8 @@ namespace WindowBackRecorder
             var controls = new StackPanel();
             rightPanel.Child = controls;
 
-            controls.Children.Add(SectionLabel("Recording"));
-            controls.Children.Add(FormLabel("Save folder"));
+            controls.Children.Add(SectionLabel("녹화 설정"));
+            controls.Children.Add(FormLabel("저장 폴더"));
 
             var folderRow = new Grid { Margin = new Thickness(0, 4, 0, 14) };
             folderRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -218,12 +218,12 @@ namespace WindowBackRecorder
             Grid.SetColumn(saveFolderBox, 0);
             folderRow.Children.Add(saveFolderBox);
 
-            var browse = CreateSmallButton("Browse", BrowseFolder);
+            var browse = CreateSmallButton("변경", BrowseFolder);
             browse.Margin = new Thickness(8, 0, 0, 0);
             Grid.SetColumn(browse, 1);
             folderRow.Children.Add(browse);
 
-            controls.Children.Add(FormLabel("Audio source"));
+            controls.Children.Add(FormLabel("소리"));
             audioCombo = new ComboBox
             {
                 Margin = new Thickness(0, 4, 0, 14),
@@ -234,7 +234,7 @@ namespace WindowBackRecorder
             };
             controls.Children.Add(audioCombo);
 
-            controls.Children.Add(FormLabel("Frame rate"));
+            controls.Children.Add(FormLabel("화면 부드러움"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };
             fpsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             fpsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
@@ -248,10 +248,10 @@ namespace WindowBackRecorder
             Grid.SetColumn(fpsValue, 1);
             fpsRow.Children.Add(fpsValue);
 
-            cursorToggle = CreateToggle("Record cursor", true);
+            cursorToggle = CreateToggle("마우스 커서도 녹화", true);
             controls.Children.Add(cursorToggle);
 
-            listenToggle = CreateToggle("Listen to captured audio", false);
+            listenToggle = CreateToggle("녹음되는 소리 듣기", false);
             listenToggle.Checked += delegate { SetMonitoring(true); };
             listenToggle.Unchecked += delegate { SetMonitoring(false); };
             controls.Children.Add(listenToggle);
@@ -262,28 +262,28 @@ namespace WindowBackRecorder
             buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             controls.Children.Add(buttonGrid);
 
-            startButton = CreateButton("Start", StartRecording, "#1e6bff", "#3d82ff");
+            startButton = CreateButton("녹화 시작", StartRecording, "#1e6bff", "#3d82ff");
             startButton.Height = 44;
             Grid.SetColumn(startButton, 0);
             buttonGrid.Children.Add(startButton);
 
-            stopButton = CreateButton("Stop", StopRecordingFromUi, "#3a2027", "#60313a");
+            stopButton = CreateButton("녹화 종료", StopRecordingFromUi, "#3a2027", "#60313a");
             stopButton.Height = 44;
             stopButton.IsEnabled = false;
             Grid.SetColumn(stopButton, 2);
             buttonGrid.Children.Add(stopButton);
 
-            controls.Children.Add(SectionLabel("View"));
+            controls.Children.Add(SectionLabel("창 보기"));
             var viewGrid = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 12) };
             controls.Children.Add(viewGrid);
-            viewGrid.Children.Add(CreateSmallButton("View off", SendTargetBack));
-            viewGrid.Children.Add(CreateSmallButton("View on", BringTargetFront));
-            viewGrid.Children.Add(CreateSmallButton("Compact", CompactTarget));
-            viewGrid.Children.Add(CreateSmallButton("Restore", RestoreTarget));
+            viewGrid.Children.Add(CreateSmallButton("뒤로 보내기", SendTargetBack));
+            viewGrid.Children.Add(CreateSmallButton("앞으로 보기", BringTargetFront));
+            viewGrid.Children.Add(CreateSmallButton("작게 두기", CompactTarget));
+            viewGrid.Children.Add(CreateSmallButton("크기 복원", RestoreTarget));
 
-            controls.Children.Add(SectionLabel("Status"));
-            engineText = MetaText("Engine: checking");
-            outputText = MetaText("Output: -");
+            controls.Children.Add(SectionLabel("상태"));
+            engineText = MetaText("화면 캡처: 확인 중");
+            outputText = MetaText("저장 파일: -");
             controls.Children.Add(engineText);
             controls.Children.Add(outputText);
 
@@ -440,7 +440,7 @@ namespace WindowBackRecorder
         private void RefreshCapabilities()
         {
             gfxCaptureAvailable = TestFfmpegFilter("gfxcapture");
-            engineText.Text = gfxCaptureAvailable ? "Engine: gfxcapture" : "Engine: gdigrab fallback";
+            engineText.Text = gfxCaptureAvailable ? "화면 캡처: gfxcapture" : "화면 캡처: 예비 방식";
         }
 
         private void RefreshWindows()
@@ -449,7 +449,7 @@ namespace WindowBackRecorder
             var windows = NativeWindows.GetOpenWindows();
             windowList.ItemsSource = windows;
             selectedWindow = null;
-            targetText.Text = "No target selected";
+            targetText.Text = "창을 선택해주세요";
 
             foreach (WindowInfo info in windows)
             {
@@ -460,7 +460,7 @@ namespace WindowBackRecorder
                 }
             }
 
-            AppendLog("Windows refreshed: " + windows.Count.ToString(CultureInfo.InvariantCulture));
+            AppendLog("창 목록 새로고침: " + windows.Count.ToString(CultureInfo.InvariantCulture) + "개");
         }
 
         private void RefreshAudioSources()
@@ -470,13 +470,13 @@ namespace WindowBackRecorder
 
             foreach (var name in GetLoopbackSources())
             {
-                sources.Add(new AudioOption("Loopback: " + name, name));
+                sources.Add(new AudioOption("녹음 장치: " + name, name));
             }
 
             audioCombo.ItemsSource = sources;
             audioCombo.DisplayMemberPath = "Label";
             audioCombo.SelectedIndex = sources.Count > 1 ? 1 : 0;
-            AppendLog("Loopback sources: " + Math.Max(0, sources.Count - 1).ToString(CultureInfo.InvariantCulture));
+            AppendLog("녹음 가능한 출력 장치: " + Math.Max(0, sources.Count - 1).ToString(CultureInfo.InvariantCulture) + "개");
         }
 
         private void OnWindowSelected(object sender, SelectionChangedEventArgs e)
@@ -484,7 +484,7 @@ namespace WindowBackRecorder
             selectedWindow = windowList.SelectedItem as WindowInfo;
             if (selectedWindow == null)
             {
-                targetText.Text = "No target selected";
+                targetText.Text = "창을 선택해주세요";
                 return;
             }
             targetText.Text = selectedWindow.ProcessName + "  " + selectedWindow.SizeText;
@@ -494,13 +494,13 @@ namespace WindowBackRecorder
         {
             if (selectedWindow == null)
             {
-                SetStatus("Select a target window first");
+                SetStatus("먼저 녹화할 창을 선택해주세요");
                 return;
             }
 
             if (!NativeMethods.IsWindow(selectedWindow.Handle))
             {
-                SetStatus("Target window is gone");
+                SetStatus("선택한 창을 찾을 수 없어요");
                 RefreshWindows();
                 return;
             }
@@ -540,15 +540,15 @@ namespace WindowBackRecorder
                 startButton.IsEnabled = false;
                 stopButton.IsEnabled = true;
                 saveFolderBox.IsEnabled = false;
-                outputText.Text = "Output: " + finalPath;
-                SetStatus("Recording");
-                AppendLog("Recording started: " + finalPath);
+                outputText.Text = "저장 파일: " + finalPath;
+                SetStatus("녹화 중");
+                AppendLog("녹화 시작: " + finalPath);
             }
             catch (Exception ex)
             {
-                AppendLog("Start failed: " + ex.Message);
+                AppendLog("녹화를 시작하지 못했어요: " + ex.Message);
                 StopProcessesOnly();
-                SetStatus("Start failed");
+                SetStatus("시작 실패");
             }
         }
 
@@ -603,7 +603,7 @@ namespace WindowBackRecorder
             args.Add("23");
             args.Add(outputPath);
 
-            return StartProcess("ffmpeg", args, "[video] ");
+            return StartProcess("ffmpeg", args, "[화면] ");
         }
 
         private Process StartLoopbackAudio(string audioPath, string sourceName, bool monitorOn)
@@ -614,7 +614,7 @@ namespace WindowBackRecorder
             args.Add("--source");
             args.Add(sourceName);
             if (monitorOn) args.Add("--monitor-on");
-            return StartProcess("python", args, "[audio] ");
+            return StartProcess("python", args, "[소리] ");
         }
 
         private Process StartProcess(string fileName, List<string> args, string logPrefix)
@@ -645,7 +645,7 @@ namespace WindowBackRecorder
                 if (!string.IsNullOrEmpty(e.Data)) Dispatcher.BeginInvoke(new Action(delegate { AppendLog(logPrefix + e.Data); }));
             };
 
-            if (!process.Start()) throw new InvalidOperationException("Could not start " + fileName);
+            if (!process.Start()) throw new InvalidOperationException(fileName + " 실행에 실패했어요");
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             return process;
@@ -671,7 +671,7 @@ namespace WindowBackRecorder
             }
 
             activeRecording = null;
-            SetStatus("Ready");
+            SetStatus("준비됨");
         }
 
         private void StopProcessesOnly()
@@ -707,7 +707,7 @@ namespace WindowBackRecorder
         {
             try
             {
-                AppendLog("Muxing final MP4...");
+                AppendLog("영상과 소리를 합치는 중...");
                 var args = new List<string>();
                 args.Add("-hide_banner");
                 args.Add("-y");
@@ -745,17 +745,17 @@ namespace WindowBackRecorder
                 {
                     TryDelete(recording.VideoPath);
                     TryDelete(recording.AudioPath);
-                    outputText.Text = "Output: " + recording.FinalPath;
-                    AppendLog("Saved: " + recording.FinalPath);
+                    outputText.Text = "저장 파일: " + recording.FinalPath;
+                    AppendLog("저장 완료: " + recording.FinalPath);
                 }
                 else
                 {
-                    AppendLog("Mux failed: " + err);
+                    AppendLog("파일을 합치지 못했어요: " + err);
                 }
             }
             catch (Exception ex)
             {
-                AppendLog("Mux failed: " + ex.Message);
+                AppendLog("파일을 합치지 못했어요: " + ex.Message);
             }
         }
 
@@ -765,7 +765,7 @@ namespace WindowBackRecorder
             NativeMethods.ShowWindow(selectedWindow.Handle, NativeMethods.SW_SHOWNOACTIVATE);
             NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_BOTTOM, 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
-            SetStatus("View off");
+            SetStatus("창을 뒤로 보냈어요");
         }
 
         private void BringTargetFront()
@@ -775,7 +775,7 @@ namespace WindowBackRecorder
             NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_TOP, 0, 0, 0, 0,
                 NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
             NativeMethods.SetForegroundWindow(selectedWindow.Handle);
-            SetStatus("View on");
+            SetStatus("창을 앞으로 가져왔어요");
         }
 
         private void CompactTarget()
@@ -790,7 +790,7 @@ namespace WindowBackRecorder
             NativeMethods.ShowWindow(selectedWindow.Handle, NativeMethods.SW_SHOWNOACTIVATE);
             NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_BOTTOM, x, y, width, height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
-            SetStatus("Compact view");
+            SetStatus("창을 작게 두었어요");
         }
 
         private void RestoreTarget()
@@ -798,13 +798,13 @@ namespace WindowBackRecorder
             if (!EnsureTarget()) return;
             if (!savedBounds.HasValue)
             {
-                SetStatus("No saved size");
+                SetStatus("저장된 창 크기가 없어요");
                 return;
             }
             var b = savedBounds.Value;
             NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_BOTTOM, b.Left, b.Top, b.Width, b.Height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
-            SetStatus("Restored");
+            SetStatus("창 크기를 복원했어요");
         }
 
         private void SetMonitoring(bool enabled)
@@ -813,11 +813,11 @@ namespace WindowBackRecorder
             try
             {
                 audioProcess.StandardInput.WriteLine(enabled ? "monitor on" : "monitor off");
-                AppendLog("Listen: " + (enabled ? "on" : "off"));
+                AppendLog("듣기: " + (enabled ? "켬" : "끔"));
             }
             catch
             {
-                AppendLog("Could not change listening state");
+                AppendLog("듣기 상태를 바꾸지 못했어요");
             }
         }
 
@@ -825,7 +825,7 @@ namespace WindowBackRecorder
         {
             using (var dialog = new WinForms.FolderBrowserDialog())
             {
-                dialog.Description = "Choose recording folder";
+                dialog.Description = "녹화 파일을 저장할 폴더를 선택하세요";
                 dialog.ShowNewFolderButton = true;
                 if (Directory.Exists(saveFolderBox.Text)) dialog.SelectedPath = saveFolderBox.Text;
                 if (dialog.ShowDialog() == WinForms.DialogResult.OK)
@@ -846,7 +846,7 @@ namespace WindowBackRecorder
             if (ffmpegProcess != null && ffmpegProcess.HasExited)
             {
                 int code = ffmpegProcess.ExitCode;
-                AppendLog("Video process exited: " + code.ToString(CultureInfo.InvariantCulture));
+                AppendLog("화면 녹화 프로세스 종료: " + code.ToString(CultureInfo.InvariantCulture));
                 StopRecording();
             }
         }
@@ -855,7 +855,7 @@ namespace WindowBackRecorder
         {
             if ((ffmpegProcess != null && !ffmpegProcess.HasExited) || (audioProcess != null && !audioProcess.HasExited))
             {
-                var result = System.Windows.MessageBox.Show(this, "A recording is running. Stop and close?", "Window Back Recorder", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                var result = System.Windows.MessageBox.Show(this, "녹화가 진행 중입니다. 녹화를 끝내고 닫을까요?", "창 뒤 녹화기", MessageBoxButton.YesNo, MessageBoxImage.Warning);
                 if (result != MessageBoxResult.Yes)
                 {
                     e.Cancel = true;
@@ -869,12 +869,12 @@ namespace WindowBackRecorder
         {
             if (selectedWindow == null)
             {
-                SetStatus("Select a target first");
+                SetStatus("먼저 녹화할 창을 선택해주세요");
                 return false;
             }
             if (!NativeMethods.IsWindow(selectedWindow.Handle))
             {
-                SetStatus("Target window is gone");
+                SetStatus("선택한 창을 찾을 수 없어요");
                 RefreshWindows();
                 return false;
             }
@@ -886,7 +886,7 @@ namespace WindowBackRecorder
             string value = (saveFolderBox.Text ?? "").Trim();
             if (value.Length == 0)
             {
-                SetStatus("Choose a save folder");
+                SetStatus("저장 폴더를 선택해주세요");
                 return null;
             }
             return Path.GetFullPath(value);
@@ -958,7 +958,7 @@ namespace WindowBackRecorder
             }
             catch (Exception ex)
             {
-                AppendLog("Audio probe failed: " + ex.Message);
+                AppendLog("소리 장치를 확인하지 못했어요: " + ex.Message);
             }
 
             return results;

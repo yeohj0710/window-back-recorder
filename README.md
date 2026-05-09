@@ -1,79 +1,81 @@
-# Window Back Recorder
+# 창 뒤 녹화기
 
-A small Windows recorder/controller for a selected visible window.
+원하는 창 하나를 골라서 녹화하는 윈도우 프로그램입니다.
 
-## What it does
+녹화할 창은 뒤로 보내두고 다른 작업을 할 수 있고, 필요할 때 다시 앞으로 가져와서 볼 수 있습니다. 소리도 녹음은 계속하면서, 내가 듣는지만 따로 켜고 끌 수 있게 만들었습니다.
 
-- Lists visible top-level windows.
-- Records the selected window with FFmpeg `gfxcapture` when available, with `gdigrab` as a fallback.
-- Sends the target window behind other windows without minimizing it.
-- Lets you bring the target window back to the front.
-- Can compact the target window to the lower-right corner and restore its size.
-- Can record loopback audio from a selected output device and mux it into the MP4 after stopping.
-- Lets you toggle listening to captured loopback audio while recording.
-- Lets you choose the save folder.
-- Saves recordings with date/time names such as `2026-05-09_12-30-05.mp4`.
+## 먼저 준비할 것
 
-## Requirements
+- Windows 10 또는 Windows 11
+- Python 3
+- FFmpeg
 
-- Windows 10/11.
-- Python 3.
-- FFmpeg in `PATH`.
-- Python dependencies:
+처음 한 번만 아래 명령어를 실행해주세요.
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-## Run
+FFmpeg는 `ffmpeg` 명령어가 PowerShell에서 바로 실행되는 상태면 됩니다.
 
-Double-click:
+## 실행하기
+
+아래 파일을 더블클릭하면 됩니다.
 
 ```text
 WindowBackRecorder.exe
 ```
 
-The `.cmd` file is just a convenience launcher:
+잘 안 열리면 이 파일로 실행해도 됩니다.
 
-Double-click:
-
-```bat
+```text
 Start-WindowBackRecorder.cmd
 ```
 
-If you need the legacy PowerShell UI:
+## 기본 사용법
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\WindowBackRecorder.ps1
+1. 프로그램을 엽니다.
+2. 왼쪽 목록에서 녹화할 창을 고릅니다.
+3. 오른쪽에서 저장 폴더를 정합니다.
+4. 소리를 같이 녹음하려면 `녹음 장치:`로 시작하는 항목을 고릅니다.
+5. `녹화 시작`을 누릅니다.
+6. 창을 화면에서 치워두고 싶으면 `뒤로 보내기`를 누릅니다.
+7. 다시 보고 싶으면 `앞으로 보기`를 누릅니다.
+8. 녹음되는 소리를 듣고 싶을 때만 `녹음되는 소리 듣기`를 켭니다.
+9. 끝나면 `녹화 종료`를 누릅니다.
+
+녹화 파일은 저장 폴더에 이런 이름으로 만들어집니다.
+
+```text
+2026-05-09_12-30-05.mp4
 ```
 
-## Use
+## 소리를 안 듣고 녹음만 하고 싶을 때
 
-1. Open the app.
-2. Select the window you want to record.
-3. Choose a save folder.
-4. Choose an audio source. For app/system audio, pick a `Loopback:` device.
-5. Press `Start`.
-6. Press `View off` to push the target window behind your work.
-7. Toggle `Listen to captured audio` whenever you want to hear or stop hearing the captured audio.
-8. Press `Stop`. The final `.mp4` is written with a date/time filename.
+앱 자체를 음소거하면 녹음도 같이 조용해질 수 있습니다. 그래서 이 방법이 더 안정적입니다.
 
-For silent-but-recording audio, route the target app to an unused or virtual output device in Windows Sound Mixer, select that same device's `Loopback:` source here, and keep `Listen to captured audio` off until you want to monitor it.
+1. 프로그램 오른쪽 위의 `소리 설정`을 누릅니다.
+2. Windows의 앱별 볼륨/출력 장치 설정에서 녹화할 앱의 출력을 안 쓰는 출력 장치로 보냅니다.
+3. 창 뒤 녹화기에서 그 출력 장치에 해당하는 `녹음 장치:`를 선택합니다.
+4. `녹음되는 소리 듣기`는 꺼둡니다.
+5. 듣고 싶을 때만 다시 켭니다.
 
-## Build
+이렇게 하면 녹화 파일에는 소리가 들어가고, 평소에는 내 스피커로 들리지 않게 쓸 수 있습니다.
+
+## 알아둘 점
+
+- 녹화할 창을 최소화하거나 닫으면 화면이 멈추거나 검게 나올 수 있습니다.
+- `뒤로 보내기`처럼 다른 창에 가려지는 건 보통 괜찮습니다.
+- 일부 프로그램은 자체 정책 때문에 화면 캡처가 막힐 수 있습니다.
+- 앱 안에서 음소거하거나 Windows에서 그 앱을 음소거하면 녹음도 무음이 될 수 있습니다.
+- 수업, 회의, 영상은 녹화가 허용된 경우에만 사용해주세요.
+
+## 빌드하기
+
+코드를 고친 뒤 exe를 다시 만들려면 아래 명령어를 실행하면 됩니다.
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-## Important limits
-
-- Do not minimize, hide, or close the target window while recording.
-- The target window must keep rendering frames. Covering it with other windows is usually okay with `gfxcapture`; minimizing it can still stop or freeze frames.
-- Some apps block capture or render protected content as black. Use built-in/host recording when an app deliberately blocks capture.
-- Loopback audio records whatever Windows is actually rendering to the selected output device. If you mute the app internally or mute its Windows audio session, the recording may also be silent.
-- To avoid hearing the app while still recording it, route the app to an unused/virtual output device in Windows Sound Mixer, choose that device's `Loopback:` source in this app, and leave `Listen to captured audio` off. Turn it on when you want to hear the content.
-
-## Notes
-
-Use this only where you have permission to record. The app does not join meetings or bypass account permissions; it records pixels/audio that the local Windows session is already rendering.
+빌드가 끝나면 같은 폴더에 `WindowBackRecorder.exe`가 새로 만들어집니다.

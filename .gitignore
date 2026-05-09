@@ -1,0 +1,32 @@
+# Local settings
+settings.json
+프로그램 구성 파일/settings.json
+
+# User recordings and temporary recording parts
+녹화 완료된 동영상/
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.webm
+*.wav
+*.m4a
+*.aac
+*.flac
+*.video.mkv
+*.audio.wav
+
+# Build, package, and diagnostic output
+build/
+dist/
+diagnostics/
+프로그램 구성 파일/build/
+프로그램 구성 파일/dist/
+프로그램 구성 파일/diagnostics/
+프로그램 구성 파일/배포용/
+
+# Python cache and local logs
+__pycache__/
+*.py[cod]
+*.log
+*.tmp

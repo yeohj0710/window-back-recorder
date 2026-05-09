@@ -63,6 +63,8 @@ namespace WindowBackRecorder
         private const string SupportFolderName = "백그라운드 영상 녹화 프로그램_자료";
         private const string NoAudioLabel = "소리 없이 녹화";
         private const string DeveloperLabel = "developed by yeohj0710";
+        private const string DefaultRecordingsFolderName = "녹화 완료된 동영상";
+        private const string OldDefaultRecordingsFolderName = "녹화 완료 영상";
 
         public MainWindow()
         {
@@ -979,8 +981,8 @@ namespace WindowBackRecorder
             {
                 videos = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             }
-            string fallback = Path.Combine(videos, "녹화 완료 영상");
-            saveFolderBox.Text = fallback;
+            string fallback = Path.Combine(videos, DefaultRecordingsFolderName);
+            string selectedPath = fallback;
             try
             {
                 if (File.Exists(settingsPath))
@@ -989,11 +991,20 @@ namespace WindowBackRecorder
                     object value;
                     if (dict.TryGetValue("RecordingsDir", out value) && value != null)
                     {
-                        saveFolderBox.Text = value.ToString();
+                        string savedPath = value.ToString();
+                        if (!string.IsNullOrWhiteSpace(savedPath) &&
+                            !savedPath.EndsWith(Path.DirectorySeparatorChar + OldDefaultRecordingsFolderName, StringComparison.OrdinalIgnoreCase) &&
+                            !savedPath.EndsWith(Path.AltDirectorySeparatorChar + OldDefaultRecordingsFolderName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            selectedPath = savedPath;
+                        }
                     }
                 }
             }
             catch { }
+
+            saveFolderBox.Text = selectedPath;
+            try { Directory.CreateDirectory(selectedPath); } catch { }
         }
 
         private void SaveSettings(string saveDir)

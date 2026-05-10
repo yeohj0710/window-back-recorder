@@ -301,42 +301,41 @@ namespace WindowBackRecorder
             startButton.Margin = new Thickness(0, 4, 0, 18);
             controls.Children.Add(startButton);
 
-            controls.Children.Add(SectionLabel("녹화창 숨기기"));
-            var minimizeWarning = MetaText("창을 직접 최소화하면 녹화가 안 됩니다. 아래 버튼을 사용하세요.");
-            minimizeWarning.Foreground = Brush("#b45309");
-            minimizeWarning.TextWrapping = TextWrapping.Wrap;
-            minimizeWarning.Margin = new Thickness(0, 0, 0, 8);
-            controls.Children.Add(minimizeWarning);
-
             windowVisibilityToggle = CreateToggle("녹화창 숨기기 (다른 작업 가능)", false);
             windowVisibilityToggle.Height = 38;
+            windowVisibilityToggle.Margin = new Thickness(0, 0, 0, 8);
             windowVisibilityToggle.Checked += delegate { HideTargetWindowForRecording(); };
             windowVisibilityToggle.Unchecked += delegate { RestoreTargetWindowFromHidden(); };
             controls.Children.Add(windowVisibilityToggle);
 
-            controls.Children.Add(SectionLabel("소리"));
+            var minimizeWarning = MetaText("녹화 중에도 켜고 끌 수 있어요. 창을 직접 최소화하면 녹화가 안 됩니다. 꼭 이 버튼을 사용하세요.");
+            minimizeWarning.Foreground = Brush("#b45309");
+            minimizeWarning.TextWrapping = TextWrapping.Wrap;
+            minimizeWarning.Margin = new Thickness(0, 0, 0, 16);
+            controls.Children.Add(minimizeWarning);
+
             audioStatusText = MetaText("");
             audioStatusText.TextWrapping = TextWrapping.Wrap;
             audioStatusText.Margin = new Thickness(0, 0, 0, 6);
-            controls.Children.Add(audioStatusText);
 
-            var muteHelp = MetaText("앱을 음소거하지 않고, 출력 장치 마지막 단계만 끕니다. 녹화가 끝나면 원래 상태로 되돌립니다.");
-            muteHelp.TextWrapping = TextWrapping.Wrap;
-            muteHelp.Foreground = Brush("#b45309");
-            muteHelp.Margin = new Thickness(0, 0, 0, 8);
-            controls.Children.Add(muteHelp);
-
-            muteOutputToggle = CreateSwitchToggle("내 스피커 소리 끄고 녹화하기", false);
-            muteOutputToggle.Margin = new Thickness(0, 0, 0, 18);
+            muteOutputToggle = CreateToggle("내 스피커 소리 끄고 녹화하기", false);
+            muteOutputToggle.Height = 38;
+            muteOutputToggle.Margin = new Thickness(0, 0, 0, 8);
             muteOutputToggle.Checked += delegate { OnMuteOutputToggleChanged(true); };
             muteOutputToggle.Unchecked += delegate { OnMuteOutputToggleChanged(false); };
             controls.Children.Add(muteOutputToggle);
 
+            var muteHelp = MetaText("앱을 음소거하지 않고, 출력 장치 마지막 단계만 끕니다. 녹화가 끝나면 원래 상태로 되돌립니다.");
+            muteHelp.TextWrapping = TextWrapping.Wrap;
+            muteHelp.Foreground = Brush("#b45309");
+            muteHelp.Margin = new Thickness(0, 0, 0, 16);
+            controls.Children.Add(muteHelp);
+
             drawCursorToggle = CreateSwitchToggle("마우스 커서도 녹화하기", false);
-            drawCursorToggle.Margin = new Thickness(0, 4, 0, 18);
+            drawCursorToggle.Margin = new Thickness(0, 0, 0, 14);
             controls.Children.Add(drawCursorToggle);
 
-            controls.Children.Add(SectionLabel("화면 부드러움"));
+            controls.Children.Add(FormLabel("초당 녹화 프레임 수"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };
             fpsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             fpsRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(52) });
@@ -1055,6 +1054,11 @@ namespace WindowBackRecorder
             string videoPath = segmentBase + ".video.mkv";
             string audioPath = recording.AudioMode != AudioCaptureMode.None ? segmentBase + ".audio.wav" : null;
 
+            if (recording.MuteOutput)
+            {
+                ApplyPlaybackMute();
+            }
+
             bool audioStarted = false;
             DateTime audioStartedUtc = DateTime.MinValue;
             if (recording.AudioMode != AudioCaptureMode.None)
@@ -1100,11 +1104,6 @@ namespace WindowBackRecorder
                         AppendLog("이 구간은 소리 없이 화면만 녹화합니다.");
                     }
                 }
-            }
-
-            if (recording.MuteOutput)
-            {
-                ApplyPlaybackMute();
             }
 
             DateTime videoStartedUtc;

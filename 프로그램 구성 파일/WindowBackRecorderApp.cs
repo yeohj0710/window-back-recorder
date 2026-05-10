@@ -57,6 +57,8 @@ namespace WindowBackRecorder
         private ToggleButton windowVisibilityToggle;
         private ToggleButton silentPlaybackToggle;
         private Slider fpsSlider;
+        private Slider audioSyncSlider;
+        private TextBlock audioSyncValueText;
 
         private Process ffmpegProcess;
         private Process audioProcess;
@@ -89,7 +91,9 @@ namespace WindowBackRecorder
         private const double ReducedPlaybackVolume = 0.04;
         private const double ReducedPlaybackGain = 25.0;
         private const double AudioBoostFadeSeconds = 0.45;
-        private const double AudioOutputDelayCorrectionSeconds = 0.45;
+        private const double DefaultAudioSyncDelaySeconds = 0.45;
+        private const double MinAudioSyncDelaySeconds = -1.0;
+        private const double MaxAudioSyncDelaySeconds = 1.0;
         private const double StartWarmupTrimSeconds = 3.0;
         private const int AudioReadyWaitMilliseconds = 2500;
 
@@ -351,6 +355,45 @@ namespace WindowBackRecorder
                 ChangeReducedAudioMode(false);
             };
             controls.Children.Add(silentPlaybackToggle);
+
+            controls.Children.Add(SectionLabel("소리 싱크"));
+            var syncHelpText = MetaText("소리가 영상보다 빠르면 +로, 소리가 늦으면 -로 조정하세요.");
+            syncHelpText.TextWrapping = TextWrapping.Wrap;
+            syncHelpText.Margin = new Thickness(0, 0, 0, 8);
+            controls.Children.Add(syncHelpText);
+
+            var audioSyncRow = new Grid { Margin = new Thickness(0, 0, 0, 16) };
+            audioSyncRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            audioSyncRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+            controls.Children.Add(audioSyncRow);
+
+            audioSyncSlider = new Slider
+            {
+                Minimum = MinAudioSyncDelaySeconds * 1000.0,
+                Maximum = MaxAudioSyncDelaySeconds * 1000.0,
+                Value = DefaultAudioSyncDelaySeconds * 1000.0,
+                TickFrequency = 50,
+                SmallChange = 50,
+                LargeChange = 100,
+                IsSnapToTickEnabled = true
+            };
+            audioSyncSlider.ValueChanged += delegate
+            {
+                UpdateAudioSyncValueText();
+                SaveCurrentSettings();
+            };
+            Grid.SetColumn(audioSyncSlider, 0);
+            audioSyncRow.Children.Add(audioSyncSlider);
+
+            audioSyncValueText = new TextBlock
+            {
+                Foreground = Brush("#334155"),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextAlignment = TextAlignment.Right
+            };
+            Grid.SetColumn(audioSyncValueText, 1);
+            audioSyncRow.Children.Add(audioSyncValueText);
+            UpdateAudioSyncValueText();
 
             controls.Children.Add(SectionLabel("화면 부드러움"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };
@@ -1020,7 +1063,8 @@ namespace WindowBackRecorder
                     AudioMode = audioMode,
                     BoostAudio = false,
                     AudioGain = 1.0,
-                    CurrentAudioGain = 1.0
+                    CurrentAudioGain = 1.0,
+                    AudioSyncDelaySeconds = GetAudioSyncDelaySeconds()
                 };
 
                 activeRecording = recording;
@@ -1034,6 +1078,7 @@ namespace WindowBackRecorder
                 stopButton.IsEnabled = true;
                 saveFolderBox.IsEnabled = false;
                 fpsSlider.IsEnabled = false;
+                audioSyncSlider.IsEnabled = false;
                 windowList.IsEnabled = false;
                 outputText.Text = "저장 파일: " + finalPath;
                 SetStatus(recording.HasLoopbackAudio ? "녹화 중" : "화면 녹화 중");
@@ -1045,6 +1090,7 @@ namespace WindowBackRecorder
                 StopProcessesOnly();
                 activeRecording = null;
                 fpsSlider.IsEnabled = true;
+                audioSyncSlider.IsEnabled = true;
                 windowList.IsEnabled = true;
                 SetStatus("시작 실패");
             }
@@ -1199,6 +1245,7 @@ namespace WindowBackRecorder
                 HasLoopbackAudio = audioStarted,
                 BoostAudio = recording.CurrentAudioGain > 1.01,
                 AudioGain = recording.CurrentAudioGain,
+                AudioSyncDelaySeconds = recording.AudioSyncDelaySeconds,
                 TrimStartSeconds = isFirstSegment ? StartWarmupTrimSeconds : 0,
                 VideoStartedUtc = videoStartedUtc,
                 AudioStartedUtc = audioStarted ? audioStartedUtc : DateTime.MinValue
@@ -1215,7 +1262,8 @@ namespace WindowBackRecorder
                 {
                     AppendLog("싱크 보정: 소리 시작 차이 " + syncMs.ToString("0", CultureInfo.InvariantCulture) + "ms");
                 }
-                AppendLog("싱크 보정: 저장 시 소리를 " + (AudioOutputDelayCorrectionSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture) + "ms 뒤로 맞춥니다.");
+                double manualSyncMs = segment.AudioSyncDelaySeconds * 1000.0;
+                AppendLog("싱크 보정: 저장 시 소리 위치 " + manualSyncMs.ToString("+0;-0;0", CultureInfo.InvariantCulture) + "ms 적용");
             }
         }
 
@@ -1503,6 +1551,7 @@ namespace WindowBackRecorder
                             startButton.Content = "녹화 시작";
                             saveFolderBox.IsEnabled = true;
                             fpsSlider.IsEnabled = true;
+                            audioSyncSlider.IsEnabled = true;
                             silentPlaybackToggle.IsEnabled = true;
                             windowList.IsEnabled = true;
                             SetStatus("준비됨");
@@ -1702,15 +1751,20 @@ namespace WindowBackRecorder
 
         private double GetAudioTrimSeconds(RecordingSegment segment)
         {
-            double raw = GetRawAudioSeekSeconds(segment);
+            double raw = GetAdjustedAudioSeekSeconds(segment);
             return raw > 0 ? raw : 0;
         }
 
         private double GetAudioDelaySeconds(RecordingSegment segment)
         {
-            double raw = GetRawAudioSeekSeconds(segment);
-            double automaticDelay = raw < 0 ? -raw : 0;
-            return automaticDelay + AudioOutputDelayCorrectionSeconds;
+            double raw = GetAdjustedAudioSeekSeconds(segment);
+            return raw < 0 ? -raw : 0;
+        }
+
+        private double GetAdjustedAudioSeekSeconds(RecordingSegment segment)
+        {
+            if (segment == null) return 0;
+            return GetRawAudioSeekSeconds(segment) - segment.AudioSyncDelaySeconds;
         }
 
         private double GetRawAudioSeekSeconds(RecordingSegment segment)
@@ -2500,10 +2554,34 @@ namespace WindowBackRecorder
             return Path.GetFullPath(value);
         }
 
+        private double GetAudioSyncDelaySeconds()
+        {
+            if (audioSyncSlider == null) return DefaultAudioSyncDelaySeconds;
+            double value = audioSyncSlider.Value / 1000.0;
+            if (double.IsNaN(value) || double.IsInfinity(value)) return DefaultAudioSyncDelaySeconds;
+            return Math.Max(MinAudioSyncDelaySeconds, Math.Min(MaxAudioSyncDelaySeconds, value));
+        }
+
+        private void UpdateAudioSyncValueText()
+        {
+            if (audioSyncValueText == null || audioSyncSlider == null) return;
+            int ms = (int)Math.Round(audioSyncSlider.Value);
+            audioSyncValueText.Text = ms.ToString("+0;-0;0", CultureInfo.InvariantCulture) + " ms";
+        }
+
+        private void SaveCurrentSettings()
+        {
+            if (saveFolderBox == null) return;
+            string saveDir = (saveFolderBox.Text ?? "").Trim();
+            if (saveDir.Length == 0) return;
+            SaveSettings(saveDir);
+        }
+
         private void LoadSettings()
         {
             string fallback = GetDefaultRecordingsPath();
             string selectedPath = fallback;
+            double syncDelayMs = DefaultAudioSyncDelaySeconds * 1000.0;
             try
             {
                 if (File.Exists(settingsPath))
@@ -2519,11 +2597,24 @@ namespace WindowBackRecorder
                             selectedPath = savedPath;
                         }
                     }
+                    if (dict.TryGetValue("AudioSyncDelayMs", out value) && value != null)
+                    {
+                        double parsed;
+                        if (double.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
+                        {
+                            syncDelayMs = Math.Max(MinAudioSyncDelaySeconds * 1000.0, Math.Min(MaxAudioSyncDelaySeconds * 1000.0, parsed));
+                        }
+                    }
                 }
             }
             catch { }
 
             saveFolderBox.Text = selectedPath;
+            if (audioSyncSlider != null)
+            {
+                audioSyncSlider.Value = syncDelayMs;
+                UpdateAudioSyncValueText();
+            }
             try { Directory.CreateDirectory(selectedPath); } catch { }
         }
 
@@ -2566,6 +2657,7 @@ namespace WindowBackRecorder
                 var dict = new Dictionary<string, object>();
                 dict["SettingsVersion"] = 2;
                 dict["RecordingsDir"] = saveDir;
+                dict["AudioSyncDelayMs"] = (int)Math.Round(GetAudioSyncDelaySeconds() * 1000.0);
                 File.WriteAllText(settingsPath, json.Serialize(dict), Encoding.UTF8);
             }
             catch { }
@@ -3095,6 +3187,7 @@ namespace WindowBackRecorder
         public bool BoostAudio;
         public double AudioGain = 1.0;
         public double CurrentAudioGain = 1.0;
+        public double AudioSyncDelaySeconds;
         public RecordingSegment CurrentSegment;
         public DateTime SegmentStartedUtc = DateTime.MinValue;
         public int SegmentIndex;
@@ -3107,6 +3200,7 @@ namespace WindowBackRecorder
         public bool HasLoopbackAudio;
         public bool BoostAudio;
         public double AudioGain = 1.0;
+        public double AudioSyncDelaySeconds;
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;
         public double TrimStartSeconds;

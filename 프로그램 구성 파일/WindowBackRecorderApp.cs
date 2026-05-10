@@ -458,7 +458,7 @@ namespace WindowBackRecorder
 
         private Border CreateDeveloperBadge()
         {
-            return new Border
+            var badge = new Border
             {
                 Margin = new Thickness(14, 4, 0, 0),
                 Padding = new Thickness(10, 4, 10, 5),
@@ -466,6 +466,8 @@ namespace WindowBackRecorder
                 BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(6),
                 VerticalAlignment = VerticalAlignment.Center,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = "GitHub 프로필 열기",
                 Child = new TextBlock
                 {
                     Text = DeveloperLabel,
@@ -475,6 +477,8 @@ namespace WindowBackRecorder
                     VerticalAlignment = VerticalAlignment.Center
                 }
             };
+            badge.MouseLeftButtonUp += delegate { OpenDeveloperProfile(); };
+            return badge;
         }
 
         private TextBlock SectionLabel(string text)
@@ -2565,6 +2569,18 @@ namespace WindowBackRecorder
             }
 
             Process.Start(new ProcessStartInfo(guidePath) { UseShellExecute = true });
+        }
+
+        private void OpenDeveloperProfile()
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("https://github.com/yeohj0710") { UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                AppendLog("GitHub 프로필을 열지 못했어요: " + ex.Message);
+            }
         }
 
         private void OnProcessTimer(object sender, EventArgs e)

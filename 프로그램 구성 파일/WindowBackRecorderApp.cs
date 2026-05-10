@@ -67,6 +67,7 @@ namespace WindowBackRecorder
         private bool isStopping;
         private bool isPausing;
         private bool isPaused;
+        private bool pendingResumeAfterPause;
         private bool targetWindowHidden;
         private bool silentPlaybackApplied;
         private bool processAudioSupportChecked;
@@ -85,9 +86,11 @@ namespace WindowBackRecorder
         private const string DefaultRecordingsFolderName = "녹화 완료된 동영상";
         private const string OldDefaultRecordingsFolderName = "녹화 완료 영상";
         private const string TempFolderName = "recording-temp";
-        private const double ReducedPlaybackVolume = 0.02;
-        private const double ReducedPlaybackGain = 50.0;
+        private const double ReducedPlaybackVolume = 0.04;
+        private const double ReducedPlaybackGain = 25.0;
+        private const double AudioBoostFadeSeconds = 0.45;
         private const double StartWarmupTrimSeconds = 3.0;
+        private const int AudioStartupProbeMilliseconds = 120;
 
         public MainWindow()
         {
@@ -935,7 +938,17 @@ namespace WindowBackRecorder
 
         private void ToggleRecordingAction()
         {
-            if (isPausing) return;
+            if (isPausing)
+            {
+                if (isPaused && activeRecording != null)
+                {
+                    pendingResumeAfterPause = true;
+                    startButton.Content = "다시 시작 준비 중";
+                    SetStatus("일시정지 정리 후 다시 시작할게요");
+                }
+                return;
+            }
+
             if (activeRecording == null)
             {
                 StartRecording();
@@ -1014,6 +1027,7 @@ namespace WindowBackRecorder
                 ApplySilentPlaybackIfRecording();
 
                 isPaused = false;
+                pendingResumeAfterPause = false;
                 startButton.Content = "일시정지";
                 startButton.IsEnabled = true;
                 stopButton.IsEnabled = true;
@@ -1039,13 +1053,59 @@ namespace WindowBackRecorder
         {
             if (activeRecording == null || isStopping || isPausing) return;
 
-            BeginPauseRange(activeRecording);
+            var recording = activeRecording;
+            bool keepReducedMode = silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true;
+
+            isPausing = true;
             isPaused = true;
+            pendingResumeAfterPause = false;
             startButton.Content = "다시 시작";
             startButton.IsEnabled = true;
             stopButton.IsEnabled = true;
-            SetStatus("일시정지");
-            AppendLog("녹화를 일시정지했어요");
+            SetStatus("일시정지 처리 중...");
+            AppendLog("녹화를 일시정지하는 중...");
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Exception stopError = null;
+                try
+                {
+                    StopCurrentSegment(recording, 1800, 1200, keepReducedMode);
+                }
+                catch (Exception ex)
+                {
+                    stopError = ex;
+                }
+
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    isPausing = false;
+                    if (stopError != null)
+                    {
+                        AppendLog("일시정지 처리 중 오류가 났어요: " + stopError.Message);
+                    }
+
+                    if (activeRecording != recording || isStopping)
+                    {
+                        pendingResumeAfterPause = false;
+                        return;
+                    }
+
+                    if (pendingResumeAfterPause)
+                    {
+                        pendingResumeAfterPause = false;
+                        ResumeRecording();
+                        return;
+                    }
+
+                    isPaused = true;
+                    startButton.Content = "다시 시작";
+                    startButton.IsEnabled = true;
+                    stopButton.IsEnabled = true;
+                    SetStatus("일시정지");
+                    AppendLog("녹화를 일시정지했어요");
+                }));
+            });
         }
 
         private void ResumeRecording()
@@ -1054,10 +1114,11 @@ namespace WindowBackRecorder
 
             try
             {
-                EndPauseRange(activeRecording);
+                StartRecordingSegment(activeRecording);
                 lastSilentPlaybackAttemptUtc = DateTime.MinValue;
                 ApplySilentPlaybackIfRecording();
                 isPaused = false;
+                pendingResumeAfterPause = false;
                 startButton.Content = "일시정지";
                 startButton.IsEnabled = true;
                 stopButton.IsEnabled = true;
@@ -1147,7 +1208,6 @@ namespace WindowBackRecorder
 
         private void StopCurrentSegment(RecordingState recording, int videoWaitMs, int audioWaitMs, bool keepReducedMode)
         {
-            EndPauseRange(recording);
             EndAudioBoostRange(recording, keepReducedMode);
             var videoProcess = ffmpegProcess;
             var soundProcess = audioProcess;
@@ -1236,7 +1296,7 @@ namespace WindowBackRecorder
             }
             if (monitorOn) args.Add("--monitor-on");
             var process = StartProcess(fileName, args, "[소리] ");
-            if (process.WaitForExit(900))
+            if (process.WaitForExit(AudioStartupProbeMilliseconds))
             {
                 throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows 기본 출력 장치와 녹화할 앱의 음소거 상태를 확인해주세요.");
             }
@@ -1269,7 +1329,7 @@ namespace WindowBackRecorder
             args.Add(processId.ToString(CultureInfo.InvariantCulture));
 
             var process = StartProcess(fileName, args, "[소리] ");
-            if (process.WaitForExit(900))
+            if (process.WaitForExit(AudioStartupProbeMilliseconds))
             {
                 throw new InvalidOperationException("선택한 앱 소리 녹음이 바로 종료됐어요. 앱에서 실제로 소리가 나오는지 확인해주세요.");
             }
@@ -1329,6 +1389,7 @@ namespace WindowBackRecorder
             stopButton.Content = "처리 중";
             isPausing = false;
             isPaused = false;
+            pendingResumeAfterPause = false;
             startButton.Content = "녹화 시작";
             saveFolderBox.IsEnabled = true;
             if (targetWindowHidden) RestoreTargetWindowFromHidden();
@@ -1583,9 +1644,21 @@ namespace WindowBackRecorder
                 double end = Math.Max(0, range.EndSeconds - offset);
                 if (end <= start + 0.05) continue;
 
-                filters.Add(
-                    "volume=" + ReducedPlaybackGain.ToString("0.###", CultureInfo.InvariantCulture) +
-                    ":enable='between(t\\," + FormatSeconds(start) + "\\," + FormatSeconds(end) + ")'");
+                double fade = Math.Min(AudioBoostFadeSeconds, Math.Max(0.05, (end - start) / 2.0));
+                double fadeOutStart = Math.Max(start, end - fade);
+                string gain = ReducedPlaybackGain.ToString("0.###", CultureInfo.InvariantCulture);
+                string startText = FormatSeconds(start);
+                string endText = FormatSeconds(end);
+                string fadeText = FormatSeconds(fade);
+                string fadeOutStartText = FormatSeconds(fadeOutStart);
+
+                string expression =
+                    "if(lt(t\\," + startText + ")\\,1\\," +
+                    "if(lt(t\\," + (start + fade).ToString("0.###", CultureInfo.InvariantCulture) + ")\\,1+(" + gain + "-1)*(t-" + startText + ")/" + fadeText + "\\," +
+                    "if(lt(t\\," + fadeOutStartText + ")\\," + gain + "\\," +
+                    "if(lt(t\\," + endText + ")\\,1+(" + gain + "-1)*(" + endText + "-t)/" + fadeText + "\\,1))))";
+
+                filters.Add("volume='" + expression + "':eval=frame");
             }
 
             return filters;

@@ -89,6 +89,7 @@ namespace WindowBackRecorder
         private const double ReducedPlaybackVolume = 0.04;
         private const double ReducedPlaybackGain = 25.0;
         private const double AudioBoostFadeSeconds = 0.45;
+        private const double AudioOutputDelayCorrectionSeconds = 0.45;
         private const double StartWarmupTrimSeconds = 3.0;
         private const int AudioStartupProbeMilliseconds = 120;
 
@@ -1216,6 +1217,7 @@ namespace WindowBackRecorder
                 {
                     AppendLog("싱크 보정: 소리 시작 차이 " + syncMs.ToString("0", CultureInfo.InvariantCulture) + "ms");
                 }
+                AppendLog("싱크 보정: 저장 시 소리를 " + (AudioOutputDelayCorrectionSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture) + "ms 뒤로 맞춥니다.");
             }
         }
 
@@ -1666,7 +1668,8 @@ namespace WindowBackRecorder
         private double GetAudioDelaySeconds(RecordingSegment segment)
         {
             double raw = GetRawAudioSeekSeconds(segment);
-            return raw < 0 ? -raw : 0;
+            double automaticDelay = raw < 0 ? -raw : 0;
+            return automaticDelay + AudioOutputDelayCorrectionSeconds;
         }
 
         private double GetRawAudioSeekSeconds(RecordingSegment segment)

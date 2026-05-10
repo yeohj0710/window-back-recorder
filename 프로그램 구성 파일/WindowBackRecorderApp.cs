@@ -1250,9 +1250,37 @@ namespace WindowBackRecorder
             var soundProcess = audioProcess;
             ffmpegProcess = null;
             audioProcess = null;
-            StopProcessNicely(videoProcess, videoWaitMs);
-            StopProcessNicely(soundProcess, audioWaitMs);
+            StopProcessesTogether(videoProcess, videoWaitMs, soundProcess, audioWaitMs);
             if (recording != null) recording.CurrentSegment = null;
+        }
+
+        private void StopProcessesTogether(Process videoProcess, int videoWaitMs, Process audioProcessToStop, int audioWaitMs)
+        {
+            if (videoProcess == null && audioProcessToStop == null) return;
+
+            var videoDone = new ManualResetEventSlim(videoProcess == null);
+            var audioDone = new ManualResetEventSlim(audioProcessToStop == null);
+
+            if (videoProcess != null)
+            {
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try { StopProcessNicely(videoProcess, videoWaitMs); }
+                    finally { videoDone.Set(); }
+                });
+            }
+
+            if (audioProcessToStop != null)
+            {
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try { StopProcessNicely(audioProcessToStop, audioWaitMs); }
+                    finally { audioDone.Set(); }
+                });
+            }
+
+            videoDone.Wait(videoWaitMs + 2500);
+            audioDone.Wait(audioWaitMs + 2500);
         }
 
         private Process StartFfmpegCapture(WindowInfo target, string outputPath, int fps, bool drawCursor, bool finalOutput, out DateTime captureStartedUtc)
@@ -1904,6 +1932,12 @@ namespace WindowBackRecorder
 
         private double GetRawAudioSeekSeconds(RecordingSegment segment)
         {
+            double durationBasedSeek;
+            if (TryGetDurationBasedAudioSeekSeconds(segment, out durationBasedSeek))
+            {
+                return durationBasedSeek;
+            }
+
             if (segment == null || segment.AudioStartedUtc == DateTime.MinValue || segment.VideoStartedUtc == DateTime.MinValue)
             {
                 return segment == null ? 0 : segment.TrimStartSeconds;
@@ -1911,6 +1945,51 @@ namespace WindowBackRecorder
 
             double audioStartedBeforeVideo = (segment.VideoStartedUtc - segment.AudioStartedUtc).TotalSeconds;
             return segment.TrimStartSeconds + audioStartedBeforeVideo;
+        }
+
+        private bool TryGetDurationBasedAudioSeekSeconds(RecordingSegment segment, out double seekSeconds)
+        {
+            seekSeconds = 0;
+            if (segment == null || string.IsNullOrEmpty(segment.VideoPath) || string.IsNullOrEmpty(segment.AudioPath)) return false;
+            if (!File.Exists(segment.VideoPath) || !File.Exists(segment.AudioPath)) return false;
+
+            double videoDuration;
+            double audioDuration;
+            if (!TryGetMediaDurationSeconds(segment.VideoPath, out videoDuration)) return false;
+            if (!TryGetMediaDurationSeconds(segment.AudioPath, out audioDuration)) return false;
+            if (videoDuration <= 0.1 || audioDuration <= 0.1) return false;
+
+            double rawSeek = segment.TrimStartSeconds + (audioDuration - videoDuration);
+            if (Math.Abs(rawSeek) > 10) return false;
+
+            seekSeconds = rawSeek;
+            return true;
+        }
+
+        private bool TryGetMediaDurationSeconds(string path, out double durationSeconds)
+        {
+            durationSeconds = 0;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+
+            var args = new List<string>();
+            args.Add("-hide_banner");
+            args.Add("-i");
+            args.Add(path);
+
+            string err;
+            RunFfmpeg(args, out err);
+            Match match = Regex.Match(err ?? "", @"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+            if (!match.Success) return false;
+
+            int hours;
+            int minutes;
+            double seconds;
+            if (!int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out hours)) return false;
+            if (!int.TryParse(match.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out minutes)) return false;
+            if (!double.TryParse(match.Groups[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out seconds)) return false;
+
+            durationSeconds = hours * 3600.0 + minutes * 60.0 + seconds;
+            return durationSeconds > 0;
         }
 
         private List<string> BuildAudioVolumeFilters(RecordingSegment segment, bool applyAudioFilters, double offsetSeconds)

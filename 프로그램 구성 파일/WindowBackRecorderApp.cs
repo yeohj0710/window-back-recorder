@@ -89,8 +89,8 @@ namespace WindowBackRecorder
         private const double ReducedPlaybackVolume = 0.04;
         private const double ReducedPlaybackGain = 25.0;
         private const double AudioBoostFadeSeconds = 0.45;
-        private const double ProcessAudioLatencyCompensationSeconds = 0.27;
-        private const double SystemLoopbackAudioLatencyCompensationSeconds = 0.23;
+        private const double ProcessAudioOutputDelaySeconds = 0.27;
+        private const double SystemLoopbackAudioOutputDelaySeconds = 0.23;
         private const double StartWarmupTrimSeconds = 3.0;
         private const int AudioReadyWaitMilliseconds = 2500;
         private const int VideoReadyWaitMilliseconds = 3500;
@@ -1205,7 +1205,7 @@ namespace WindowBackRecorder
                 HasLoopbackAudio = audioStarted,
                 BoostAudio = recording.CurrentAudioGain > 1.01,
                 AudioGain = recording.CurrentAudioGain,
-                AudioLatencyCompensationSeconds = GetAudioLatencyCompensationSeconds(recording.AudioMode),
+                AudioOutputDelaySeconds = GetAudioOutputDelaySeconds(recording.AudioMode),
                 Fps = recording.Fps,
                 TrimStartSeconds = isFirstSegment ? StartWarmupTrimSeconds : 0,
                 VideoStartedUtc = videoStartedUtc,
@@ -1223,18 +1223,18 @@ namespace WindowBackRecorder
                 {
                     AppendLog("싱크 보정: 소리 시작 차이 " + syncMs.ToString("0", CultureInfo.InvariantCulture) + "ms");
                 }
-                double latencyMs = segment.AudioLatencyCompensationSeconds * 1000.0;
+                double latencyMs = segment.AudioOutputDelaySeconds * 1000.0;
                 if (latencyMs > 0)
                 {
-                    AppendLog("자동 싱크 보정: 소리 캡처 지연 " + latencyMs.ToString("0", CultureInfo.InvariantCulture) + "ms 정리");
+                    AppendLog("자동 싱크 보정: 소리를 " + latencyMs.ToString("0", CultureInfo.InvariantCulture) + "ms 뒤로 맞춤");
                 }
             }
         }
 
-        private double GetAudioLatencyCompensationSeconds(AudioCaptureMode mode)
+        private double GetAudioOutputDelaySeconds(AudioCaptureMode mode)
         {
-            if (mode == AudioCaptureMode.Process) return ProcessAudioLatencyCompensationSeconds;
-            if (mode == AudioCaptureMode.SystemLoopback) return SystemLoopbackAudioLatencyCompensationSeconds;
+            if (mode == AudioCaptureMode.Process) return ProcessAudioOutputDelaySeconds;
+            if (mode == AudioCaptureMode.SystemLoopback) return SystemLoopbackAudioOutputDelaySeconds;
             return 0;
         }
 
@@ -1829,7 +1829,7 @@ namespace WindowBackRecorder
         private double GetAdjustedAudioSeekSeconds(RecordingSegment segment)
         {
             if (segment == null) return 0;
-            return GetRawAudioSeekSeconds(segment) + segment.AudioLatencyCompensationSeconds;
+            return GetRawAudioSeekSeconds(segment) - segment.AudioOutputDelaySeconds;
         }
 
         private double GetRawAudioSeekSeconds(RecordingSegment segment)
@@ -3238,7 +3238,7 @@ namespace WindowBackRecorder
         public bool HasLoopbackAudio;
         public bool BoostAudio;
         public double AudioGain = 1.0;
-        public double AudioLatencyCompensationSeconds;
+        public double AudioOutputDelaySeconds;
         public int Fps;
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;

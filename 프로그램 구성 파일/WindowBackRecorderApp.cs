@@ -91,7 +91,7 @@ namespace WindowBackRecorder
         private const double AudioBoostFadeSeconds = 0.45;
         private const double AudioOutputDelayCorrectionSeconds = 0.45;
         private const double StartWarmupTrimSeconds = 3.0;
-        private const int AudioStartupProbeMilliseconds = 120;
+        private const int AudioReadyWaitMilliseconds = 2500;
 
         public MainWindow()
         {
@@ -1148,14 +1148,13 @@ namespace WindowBackRecorder
             {
                 try
                 {
-                    audioStartedUtc = DateTime.UtcNow;
                     if (recording.AudioMode == AudioCaptureMode.Process)
                     {
-                        audioProcess = StartTargetAudio(audioPath, recording.Target.ProcessId);
+                        audioProcess = StartTargetAudio(audioPath, recording.Target.ProcessId, out audioStartedUtc);
                     }
                     else
                     {
-                        audioProcess = StartLoopbackAudio(audioPath, null, false);
+                        audioProcess = StartLoopbackAudio(audioPath, null, false, out audioStartedUtc);
                     }
                     audioStarted = true;
                     recording.HasLoopbackAudio = true;
@@ -1169,8 +1168,7 @@ namespace WindowBackRecorder
                         try
                         {
                             recording.AudioMode = AudioCaptureMode.SystemLoopback;
-                            audioStartedUtc = DateTime.UtcNow;
-                            audioProcess = StartLoopbackAudio(audioPath, null, false);
+                            audioProcess = StartLoopbackAudio(audioPath, null, false, out audioStartedUtc);
                             audioStarted = true;
                             recording.HasLoopbackAudio = true;
                             AppendLog("기본 출력 소리 녹음으로 대신 저장합니다.");
@@ -1292,8 +1290,9 @@ namespace WindowBackRecorder
             return StartProcess(GetFfmpegPath(), args, "[화면] ");
         }
 
-        private Process StartLoopbackAudio(string audioPath, string sourceName, bool monitorOn)
+        private Process StartLoopbackAudio(string audioPath, string sourceName, bool monitorOn, out DateTime captureStartedUtc)
         {
+            captureStartedUtc = DateTime.MinValue;
             string fileName;
             var args = new List<string>();
             string helperPath = GetAudioHelperPath();
@@ -1315,16 +1314,34 @@ namespace WindowBackRecorder
                 args.Add(sourceName);
             }
             if (monitorOn) args.Add("--monitor-on");
-            var process = StartProcess(fileName, args, "[소리] ");
-            if (process.WaitForExit(AudioStartupProbeMilliseconds))
+
+            var ready = new ManualResetEventSlim(false);
+            DateTime readyUtc = DateTime.MinValue;
+            var process = StartProcess(fileName, args, "[소리] ", delegate(string line)
             {
-                throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows 기본 출력 장치와 녹화할 앱의 음소거 상태를 확인해주세요.");
+                if (line.IndexOf("loopback audio capture started", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    readyUtc = DateTime.UtcNow;
+                    ready.Set();
+                }
+            });
+
+            if (!WaitForAudioReady(process, ready, AudioReadyWaitMilliseconds))
+            {
+                if (process.HasExited)
+                {
+                    throw new InvalidOperationException("소리 녹음이 바로 종료됐어요. Windows 기본 출력 장치와 녹화할 앱의 음소거 상태를 확인해주세요.");
+                }
+                readyUtc = DateTime.UtcNow;
+                AppendLog("소리 녹음 시작 신호를 받지 못해 현재 시각으로 싱크를 맞춥니다.");
             }
+            captureStartedUtc = readyUtc;
             return process;
         }
 
-        private Process StartTargetAudio(string audioPath, int processId)
+        private Process StartTargetAudio(string audioPath, int processId, out DateTime captureStartedUtc)
         {
+            captureStartedUtc = DateTime.MinValue;
             string fileName;
             var args = new List<string>();
             string helperPath = GetProcessAudioHelperPath();
@@ -1348,15 +1365,48 @@ namespace WindowBackRecorder
             args.Add("--pid");
             args.Add(processId.ToString(CultureInfo.InvariantCulture));
 
-            var process = StartProcess(fileName, args, "[소리] ");
-            if (process.WaitForExit(AudioStartupProbeMilliseconds))
+            var ready = new ManualResetEventSlim(false);
+            DateTime readyUtc = DateTime.MinValue;
+            var process = StartProcess(fileName, args, "[소리] ", delegate(string line)
             {
-                throw new InvalidOperationException("선택한 앱 소리 녹음이 바로 종료됐어요. 앱에서 실제로 소리가 나오는지 확인해주세요.");
+                if (line.IndexOf("process audio capture started", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    readyUtc = DateTime.UtcNow;
+                    ready.Set();
+                }
+            });
+
+            if (!WaitForAudioReady(process, ready, AudioReadyWaitMilliseconds))
+            {
+                if (process.HasExited)
+                {
+                    throw new InvalidOperationException("선택한 앱 소리 녹음이 바로 종료됐어요. 앱에서 실제로 소리가 나오는지 확인해주세요.");
+                }
+                readyUtc = DateTime.UtcNow;
+                AppendLog("앱 소리 녹음 시작 신호를 받지 못해 현재 시각으로 싱크를 맞춥니다.");
             }
+            captureStartedUtc = readyUtc;
             return process;
         }
 
+        private bool WaitForAudioReady(Process process, ManualResetEventSlim ready, int waitMs)
+        {
+            int waited = 0;
+            while (waited < waitMs)
+            {
+                if (ready.Wait(100)) return true;
+                if (process.HasExited) return false;
+                waited += 100;
+            }
+            return ready.IsSet;
+        }
+
         private Process StartProcess(string fileName, List<string> args, string logPrefix)
+        {
+            return StartProcess(fileName, args, logPrefix, null);
+        }
+
+        private Process StartProcess(string fileName, List<string> args, string logPrefix, Action<string> onOutputLine)
         {
             var psi = new ProcessStartInfo
             {
@@ -1378,11 +1428,19 @@ namespace WindowBackRecorder
             process.EnableRaisingEvents = true;
             process.OutputDataReceived += delegate(object sender, DataReceivedEventArgs e)
             {
-                if (!string.IsNullOrEmpty(e.Data)) QueueProcessLog(logPrefix, e.Data);
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    if (onOutputLine != null) onOutputLine(e.Data);
+                    QueueProcessLog(logPrefix, e.Data);
+                }
             };
             process.ErrorDataReceived += delegate(object sender, DataReceivedEventArgs e)
             {
-                if (!string.IsNullOrEmpty(e.Data)) QueueProcessLog(logPrefix, e.Data);
+                if (!string.IsNullOrEmpty(e.Data))
+                {
+                    if (onOutputLine != null) onOutputLine(e.Data);
+                    QueueProcessLog(logPrefix, e.Data);
+                }
             };
 
             if (!process.Start()) throw new InvalidOperationException(fileName + " 실행에 실패했어요");
@@ -1547,7 +1605,7 @@ namespace WindowBackRecorder
 
             int concatCode = muxedSegments.Count == 1
                 ? RunRemux(muxedSegments[0], recording.FinalPath, out err)
-                : RunConcat(muxedSegments, recording.FinalPath, true, out err);
+                : RunConcatAudioVideo(muxedSegments, recording.FinalPath, out err);
 
             if (concatCode == 0)
             {
@@ -1567,74 +1625,24 @@ namespace WindowBackRecorder
             args.Add("-y");
             double audioTrimSeconds = GetAudioTrimSeconds(segment);
             double audioDelaySeconds = GetAudioDelaySeconds(segment);
-
-            bool removePausedRanges = segment.PauseRanges.Count > 0;
-            if (removePausedRanges)
-            {
-                args.Add("-i");
-                args.Add(segment.VideoPath);
-                args.Add("-i");
-                args.Add(segment.AudioPath);
-                args.Add("-filter_complex");
-                args.Add(BuildAudioVideoTimelineFilter(segment, applyAudioFilters));
-                args.Add("-map");
-                args.Add("[v]");
-                args.Add("-map");
-                args.Add("[a]");
-                args.Add("-c:v");
-                args.Add("libx264");
-                args.Add("-preset");
-                args.Add("veryfast");
-                args.Add("-crf");
-                args.Add("23");
-                args.Add("-pix_fmt");
-                args.Add("yuv420p");
-                args.Add("-c:a");
-                args.Add("aac");
-                args.Add("-b:a");
-                args.Add("160k");
-                args.Add("-shortest");
-                args.Add("-movflags");
-                args.Add("+faststart");
-                args.Add(outputPath);
-                return RunFfmpeg(args, out err);
-            }
-
-            if (segment.TrimStartSeconds > 0)
-            {
-                args.Add("-ss");
-                args.Add(FormatSeconds(segment.TrimStartSeconds));
-            }
             args.Add("-i");
             args.Add(segment.VideoPath);
-            if (audioTrimSeconds > 0)
-            {
-                args.Add("-ss");
-                args.Add(FormatSeconds(audioTrimSeconds));
-            }
             args.Add("-i");
             args.Add(segment.AudioPath);
+            args.Add("-filter_complex");
+            args.Add(BuildMuxFilterComplex(segment, applyAudioFilters, audioTrimSeconds, audioDelaySeconds));
             args.Add("-map");
-            args.Add("0:v:0");
+            args.Add("[v]");
             args.Add("-map");
-            args.Add("1:a:0");
+            args.Add("[a]");
             args.Add("-c:v");
-            args.Add(segment.TrimStartSeconds > 0 ? "libx264" : "copy");
-            if (segment.TrimStartSeconds > 0)
-            {
-                args.Add("-preset");
-                args.Add("veryfast");
-                args.Add("-crf");
-                args.Add("23");
-                args.Add("-pix_fmt");
-                args.Add("yuv420p");
-            }
-            string audioFilter = BuildAudioFilter(segment, applyAudioFilters, audioDelaySeconds);
-            if (!string.IsNullOrEmpty(audioFilter))
-            {
-                args.Add("-af");
-                args.Add(audioFilter);
-            }
+            args.Add("libx264");
+            args.Add("-preset");
+            args.Add("veryfast");
+            args.Add("-crf");
+            args.Add("23");
+            args.Add("-pix_fmt");
+            args.Add("yuv420p");
             args.Add("-c:a");
             args.Add("aac");
             args.Add("-b:a");
@@ -1646,9 +1654,39 @@ namespace WindowBackRecorder
             return RunFfmpeg(args, out err);
         }
 
+        private string BuildMuxFilterComplex(RecordingSegment segment, bool applyAudioFilters, double audioTrimSeconds, double audioDelaySeconds)
+        {
+            var videoFilters = new List<string>();
+            if (segment.TrimStartSeconds > 0)
+            {
+                videoFilters.Add("trim=start=" + FormatSeconds(segment.TrimStartSeconds));
+            }
+            videoFilters.Add("setpts=PTS-STARTPTS");
+
+            var audioFilters = new List<string>();
+            if (audioTrimSeconds > 0)
+            {
+                audioFilters.Add("atrim=start=" + FormatSeconds(audioTrimSeconds));
+            }
+            audioFilters.Add("asetpts=PTS-STARTPTS");
+            audioFilters.AddRange(BuildAudioVolumeFilters(segment, applyAudioFilters, audioTrimSeconds));
+            if (audioFilters.Count > 1 && audioFilters[audioFilters.Count - 1] != "asetpts=PTS-STARTPTS")
+            {
+                audioFilters.Add("alimiter=limit=0.98");
+            }
+            if (audioDelaySeconds > 0.001)
+            {
+                int delayMs = Math.Max(1, (int)Math.Round(audioDelaySeconds * 1000.0));
+                audioFilters.Add("adelay=" + delayMs.ToString(CultureInfo.InvariantCulture) + ":all=1");
+            }
+            audioFilters.Add("apad");
+
+            return "[0:v]" + string.Join(",", videoFilters.ToArray()) + "[v];[1:a]" + string.Join(",", audioFilters.ToArray()) + "[a]";
+        }
+
         private string BuildAudioFilter(RecordingSegment segment, bool applyAudioFilters, double audioDelaySeconds)
         {
-            var filters = BuildAudioVolumeFilters(segment, applyAudioFilters, true);
+            var filters = BuildAudioVolumeFilters(segment, applyAudioFilters, segment.TrimStartSeconds);
             if (audioDelaySeconds > 0.001)
             {
                 int delayMs = Math.Max(1, (int)Math.Round(audioDelaySeconds * 1000.0));
@@ -1686,16 +1724,15 @@ namespace WindowBackRecorder
             return segment.TrimStartSeconds + audioStartedBeforeVideo;
         }
 
-        private List<string> BuildAudioVolumeFilters(RecordingSegment segment, bool applyAudioFilters, bool subtractTrimStart)
+        private List<string> BuildAudioVolumeFilters(RecordingSegment segment, bool applyAudioFilters, double offsetSeconds)
         {
             var filters = new List<string>();
             if (!applyAudioFilters || segment.AudioBoostRanges.Count == 0) return filters;
 
             foreach (AudioBoostRange range in segment.AudioBoostRanges)
             {
-                double offset = subtractTrimStart ? segment.TrimStartSeconds : 0;
-                double start = Math.Max(0, range.StartSeconds - offset);
-                double end = Math.Max(0, range.EndSeconds - offset);
+                double start = Math.Max(0, range.StartSeconds - offsetSeconds);
+                double end = Math.Max(0, range.EndSeconds - offsetSeconds);
                 if (end <= start + 0.05) continue;
 
                 double fade = Math.Min(AudioBoostFadeSeconds, Math.Max(0.05, (end - start) / 2.0));
@@ -1723,7 +1760,7 @@ namespace WindowBackRecorder
             string keepExpression = BuildKeepExpression(segment);
             string videoFilter = "[0:v]select='" + keepExpression + "',setpts=N/FRAME_RATE/TB[v]";
 
-            var audioFilters = BuildAudioVolumeFilters(segment, applyAudioFilters, false);
+            var audioFilters = BuildAudioVolumeFilters(segment, applyAudioFilters, 0);
             if (audioFilters.Count > 0) audioFilters.Add("alimiter=limit=0.98");
             audioFilters.Add("aselect='" + keepExpression + "'");
             audioFilters.Add("asetpts=N/SR/TB");
@@ -1925,6 +1962,58 @@ namespace WindowBackRecorder
             {
                 TryDelete(listPath);
             }
+        }
+
+        private int RunConcatAudioVideo(List<string> inputPaths, string outputPath, out string err)
+        {
+            var args = new List<string>();
+            args.Add("-hide_banner");
+            args.Add("-y");
+            foreach (string path in inputPaths)
+            {
+                args.Add("-i");
+                args.Add(path);
+            }
+
+            var filters = new List<string>();
+            var concatInputs = new StringBuilder();
+            for (int i = 0; i < inputPaths.Count; i++)
+            {
+                filters.Add("[" + i.ToString(CultureInfo.InvariantCulture) + ":v]setpts=PTS-STARTPTS[v" + i.ToString(CultureInfo.InvariantCulture) + "]");
+                filters.Add("[" + i.ToString(CultureInfo.InvariantCulture) + ":a]aresample=async=1:first_pts=0,asetpts=PTS-STARTPTS[a" + i.ToString(CultureInfo.InvariantCulture) + "]");
+                concatInputs.Append("[v");
+                concatInputs.Append(i.ToString(CultureInfo.InvariantCulture));
+                concatInputs.Append("][a");
+                concatInputs.Append(i.ToString(CultureInfo.InvariantCulture));
+                concatInputs.Append("]");
+            }
+            concatInputs.Append("concat=n=");
+            concatInputs.Append(inputPaths.Count.ToString(CultureInfo.InvariantCulture));
+            concatInputs.Append(":v=1:a=1[v][a]");
+            filters.Add(concatInputs.ToString());
+
+            args.Add("-filter_complex");
+            args.Add(string.Join(";", filters.ToArray()));
+            args.Add("-map");
+            args.Add("[v]");
+            args.Add("-map");
+            args.Add("[a]");
+            args.Add("-c:v");
+            args.Add("libx264");
+            args.Add("-preset");
+            args.Add("veryfast");
+            args.Add("-crf");
+            args.Add("23");
+            args.Add("-pix_fmt");
+            args.Add("yuv420p");
+            args.Add("-c:a");
+            args.Add("aac");
+            args.Add("-b:a");
+            args.Add("160k");
+            args.Add("-movflags");
+            args.Add("+faststart");
+            args.Add(outputPath);
+            return RunFfmpeg(args, out err);
         }
 
         private string BuildConcatList(List<string> inputPaths)

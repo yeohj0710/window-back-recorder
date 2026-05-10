@@ -105,6 +105,7 @@ def record_loopback(output_path, source_name, samplerate, channels, block_frames
             print("monitor playback disabled for this source to avoid recording feedback", flush=True)
         with microphone.recorder(samplerate=samplerate, channels=channels) as recorder:
             with output_speaker.player(samplerate=samplerate, channels=channels) as player:
+                print("loopback audio capture started", flush=True)
                 while not stop_event.is_set():
                     data = recorder.record(numframes=block_frames)
                     if data.ndim == 1:

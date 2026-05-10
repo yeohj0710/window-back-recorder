@@ -24,6 +24,7 @@ diagnostics/
 프로그램 구성 파일/dist/
 프로그램 구성 파일/diagnostics/
 프로그램 구성 파일/배포용/
+프로그램 구성 파일/recording-temp/
 
 # Python cache and local logs
 __pycache__/

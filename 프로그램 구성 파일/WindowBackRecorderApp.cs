@@ -82,6 +82,8 @@ namespace WindowBackRecorder
         private const string TempFolderName = "recording-temp";
         private const int HiddenWindowVisibleStripPixels = 6;
         private const int AudioReadyWaitMilliseconds = 2500;
+        private const int AudioSampleReadyWaitMilliseconds = 1200;
+        private const double AudioRenderSyncDelaySeconds = 0.45;
         private const int VideoReadyWaitMilliseconds = 3500;
 
         public MainWindow()
@@ -1005,6 +1007,7 @@ namespace WindowBackRecorder
                 SetRecordButtonRecording();
                 saveFolderBox.IsEnabled = false;
                 fpsSlider.IsEnabled = false;
+                drawCursorToggle.IsEnabled = false;
                 windowList.IsEnabled = false;
                 outputText.Text = "저장 파일: " + finalPath;
                 SetStatus(recording.HasLoopbackAudio ? "녹화 중" : "화면 녹화 중");
@@ -1017,6 +1020,7 @@ namespace WindowBackRecorder
                 activeRecording = null;
                 SetRecordButtonIdle();
                 fpsSlider.IsEnabled = true;
+                drawCursorToggle.IsEnabled = true;
                 windowList.IsEnabled = true;
                 SetStatus("시작 실패");
             }
@@ -1095,6 +1099,7 @@ namespace WindowBackRecorder
                 AudioGain = 1.0,
                 Fps = recording.Fps,
                 TrimStartSeconds = videoTrimStartSeconds,
+                AudioRenderDelaySeconds = audioStarted ? AudioRenderSyncDelaySeconds : 0,
                 VideoStartedUtc = videoStartedUtc,
                 AudioStartedUtc = audioStarted ? audioStartedUtc : DateTime.MinValue,
                 AudioAlignedToTrimStart = audioAlignedToTrimStart
@@ -1108,7 +1113,9 @@ namespace WindowBackRecorder
             {
                 AppendLog("싱크 기준: 소리 시작 시점부터 영상 저장, 앞부분 "
                     + (videoTrimStartSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
-                    + "ms 제외");
+                    + "ms 제외, 소리 "
+                    + (AudioRenderSyncDelaySeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
+                    + "ms 보정");
             }
         }
 
@@ -1455,6 +1462,15 @@ namespace WindowBackRecorder
                 readyUtc = DateTime.UtcNow;
                 AppendLog("소리 녹음 시작 신호를 받지 못해 현재 시각으로 싱크를 맞춥니다.");
             }
+            else
+            {
+                DateTime sampleUtc;
+                if (WaitForAudioSamplesReady(process, audioPath, out sampleUtc))
+                {
+                    readyUtc = sampleUtc;
+                    AppendLog("소리 데이터 기준으로 싱크를 맞춥니다.");
+                }
+            }
             captureStartedUtc = readyUtc;
             return process;
         }
@@ -1505,6 +1521,15 @@ namespace WindowBackRecorder
                 readyUtc = DateTime.UtcNow;
                 AppendLog("앱 소리 녹음 시작 신호를 받지 못해 현재 시각으로 싱크를 맞춥니다.");
             }
+            else
+            {
+                DateTime sampleUtc;
+                if (WaitForAudioSamplesReady(process, audioPath, out sampleUtc))
+                {
+                    readyUtc = sampleUtc;
+                    AppendLog("앱 소리 데이터 기준으로 싱크를 맞춥니다.");
+                }
+            }
             captureStartedUtc = readyUtc;
             return process;
         }
@@ -1519,6 +1544,33 @@ namespace WindowBackRecorder
                 waited += 100;
             }
             return ready.IsSet;
+        }
+
+        private bool WaitForAudioSamplesReady(Process process, string audioPath, out DateTime sampleUtc)
+        {
+            sampleUtc = DateTime.MinValue;
+            int waited = 0;
+            while (waited < AudioSampleReadyWaitMilliseconds)
+            {
+                if (process.HasExited) return false;
+                try
+                {
+                    if (!string.IsNullOrEmpty(audioPath) && File.Exists(audioPath))
+                    {
+                        long length = new FileInfo(audioPath).Length;
+                        if (length > 44)
+                        {
+                            sampleUtc = DateTime.UtcNow;
+                            return true;
+                        }
+                    }
+                }
+                catch { }
+
+                Thread.Sleep(25);
+                waited += 25;
+            }
+            return false;
         }
 
         private Process StartProcess(string fileName, List<string> args, string logPrefix)
@@ -1609,6 +1661,7 @@ namespace WindowBackRecorder
                             SetRecordButtonIdle();
                             saveFolderBox.IsEnabled = true;
                             fpsSlider.IsEnabled = true;
+                            drawCursorToggle.IsEnabled = true;
                             windowList.IsEnabled = true;
                             SetStatus("준비됨");
                         }));
@@ -1798,7 +1851,7 @@ namespace WindowBackRecorder
         {
             if (segment != null && segment.AudioAlignedToTrimStart)
             {
-                return 0;
+                return -segment.AudioRenderDelaySeconds;
             }
 
             if (segment == null || segment.AudioStartedUtc == DateTime.MinValue || segment.VideoStartedUtc == DateTime.MinValue)
@@ -1807,7 +1860,7 @@ namespace WindowBackRecorder
             }
 
             double audioStartedBeforeVideo = (segment.VideoStartedUtc - segment.AudioStartedUtc).TotalSeconds;
-            return segment.TrimStartSeconds + audioStartedBeforeVideo;
+            return segment.TrimStartSeconds + audioStartedBeforeVideo - segment.AudioRenderDelaySeconds;
         }
 
         private void FinalizeVideoOnlyRecording(RecordingState recording)
@@ -2934,6 +2987,7 @@ namespace WindowBackRecorder
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;
         public double TrimStartSeconds;
+        public double AudioRenderDelaySeconds;
         public bool AudioAlignedToTrimStart;
     }
 

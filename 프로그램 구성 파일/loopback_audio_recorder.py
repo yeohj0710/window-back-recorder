@@ -1,7 +1,9 @@
 import argparse
+import ctypes
 import json
 import sys
 import threading
+import time
 import wave
 
 import numpy as np
@@ -13,6 +15,19 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except AttributeError:
     pass
+
+
+def qpc_stamp():
+    counter = ctypes.c_longlong()
+    frequency = ctypes.c_longlong()
+    ctypes.windll.kernel32.QueryPerformanceCounter(ctypes.byref(counter))
+    ctypes.windll.kernel32.QueryPerformanceFrequency(ctypes.byref(frequency))
+    return counter.value, frequency.value
+
+
+def print_qpc(label):
+    counter, frequency = qpc_stamp()
+    print(f"{label}_qpc={counter} qpc_frequency={frequency} unix={time.time():.6f}", flush=True)
 
 
 def watch_stdin(stop_event, monitor_event):
@@ -105,6 +120,7 @@ def record_loopback(output_path, source_name, samplerate, channels, block_frames
             print("monitor playback disabled for this source to avoid recording feedback", flush=True)
         with microphone.recorder(samplerate=samplerate, channels=channels) as recorder:
             with output_speaker.player(samplerate=samplerate, channels=channels) as player:
+                print_qpc("loopback audio capture started")
                 print("loopback audio capture started", flush=True)
                 while not stop_event.is_set():
                     data = recorder.record(numframes=block_frames)

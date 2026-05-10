@@ -1,4 +1,5 @@
 import argparse
+import ctypes
 import sys
 import threading
 import time
@@ -11,6 +12,19 @@ try:
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 except AttributeError:
     pass
+
+
+def qpc_stamp():
+    counter = ctypes.c_longlong()
+    frequency = ctypes.c_longlong()
+    ctypes.windll.kernel32.QueryPerformanceCounter(ctypes.byref(counter))
+    ctypes.windll.kernel32.QueryPerformanceFrequency(ctypes.byref(frequency))
+    return counter.value, frequency.value
+
+
+def print_qpc(label):
+    counter, frequency = qpc_stamp()
+    print(f"{label}_qpc={counter} qpc_frequency={frequency} unix={time.time():.6f}", flush=True)
 
 
 def watch_stdin(stop_event):
@@ -36,7 +50,9 @@ def main():
 
     print(f"process audio capture pid: {args.pid}", flush=True)
     with ProcessAudioCapture(pid=args.pid, output_path=args.output) as capture:
+        print_qpc("process audio capture starting")
         capture.start()
+        print_qpc("process audio capture started")
         print("process audio capture started", flush=True)
         while not stop_event.is_set():
             time.sleep(0.1)

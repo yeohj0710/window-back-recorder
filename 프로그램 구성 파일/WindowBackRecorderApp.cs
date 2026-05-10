@@ -55,6 +55,7 @@ namespace WindowBackRecorder
         private ToggleButton listenToggle;
         private ToggleButton windowVisibilityToggle;
         private ToggleButton drawCursorToggle;
+        private ToggleButton muteOutputToggle;
         private Slider fpsSlider;
 
         private Process ffmpegProcess;
@@ -68,6 +69,7 @@ namespace WindowBackRecorder
         private bool processAudioSupportChecked;
         private bool processAudioSupported;
         private readonly List<AudioSessionSnapshot> audioSessionSnapshots = new List<AudioSessionSnapshot>();
+        private readonly List<EndpointVolumeSnapshot> endpointVolumeSnapshots = new List<EndpointVolumeSnapshot>();
         private int busyTick;
         private int logLineCount;
         private DateTime lastFfmpegProgressLogUtc = DateTime.MinValue;
@@ -312,8 +314,23 @@ namespace WindowBackRecorder
             windowVisibilityToggle.Unchecked += delegate { RestoreTargetWindowFromHidden(); };
             controls.Children.Add(windowVisibilityToggle);
 
+            controls.Children.Add(SectionLabel("소리"));
             audioStatusText = MetaText("");
-            audioStatusText.Visibility = Visibility.Collapsed;
+            audioStatusText.TextWrapping = TextWrapping.Wrap;
+            audioStatusText.Margin = new Thickness(0, 0, 0, 6);
+            controls.Children.Add(audioStatusText);
+
+            var muteHelp = MetaText("앱을 음소거하지 않고, 출력 장치 마지막 단계만 끕니다. 녹화가 끝나면 원래 상태로 되돌립니다.");
+            muteHelp.TextWrapping = TextWrapping.Wrap;
+            muteHelp.Foreground = Brush("#b45309");
+            muteHelp.Margin = new Thickness(0, 0, 0, 8);
+            controls.Children.Add(muteHelp);
+
+            muteOutputToggle = CreateSwitchToggle("내 스피커 소리 끄고 녹화하기", false);
+            muteOutputToggle.Margin = new Thickness(0, 0, 0, 18);
+            muteOutputToggle.Checked += delegate { OnMuteOutputToggleChanged(true); };
+            muteOutputToggle.Unchecked += delegate { OnMuteOutputToggleChanged(false); };
+            controls.Children.Add(muteOutputToggle);
 
             drawCursorToggle = CreateSwitchToggle("마우스 커서도 녹화하기", false);
             drawCursorToggle.Margin = new Thickness(0, 4, 0, 18);
@@ -1000,6 +1017,7 @@ namespace WindowBackRecorder
                     Fps = (int)fpsSlider.Value,
                     DrawCursor = drawCursorToggle != null && drawCursorToggle.IsChecked == true,
                     AudioMode = audioMode,
+                    MuteOutput = muteOutputToggle != null && muteOutputToggle.IsChecked == true,
                     AudioGain = 1.0
                 };
 
@@ -1019,6 +1037,7 @@ namespace WindowBackRecorder
             {
                 AppendLog("녹화를 시작하지 못했어요: " + ex.Message);
                 StopProcessesOnly();
+                RestorePlaybackVolume();
                 activeRecording = null;
                 SetRecordButtonIdle();
                 fpsSlider.IsEnabled = true;
@@ -1081,6 +1100,11 @@ namespace WindowBackRecorder
                         AppendLog("이 구간은 소리 없이 화면만 녹화합니다.");
                     }
                 }
+            }
+
+            if (recording.MuteOutput)
+            {
+                ApplyPlaybackMute();
             }
 
             DateTime videoStartedUtc;
@@ -2131,11 +2155,28 @@ namespace WindowBackRecorder
 
         private void RestorePlaybackVolume()
         {
-            if (audioSessionSnapshots.Count == 0) return;
+            bool hadEndpointSnapshots = endpointVolumeSnapshots.Count > 0;
+            bool hadSessionSnapshots = audioSessionSnapshots.Count > 0;
 
             try
             {
-                AudioSessionVolumeController.Restore(audioSessionSnapshots);
+                if (hadEndpointSnapshots)
+                {
+                    EndpointVolumeController.Restore(endpointVolumeSnapshots);
+                }
+            }
+            catch { }
+            finally
+            {
+                endpointVolumeSnapshots.Clear();
+            }
+
+            try
+            {
+                if (hadSessionSnapshots)
+                {
+                    AudioSessionVolumeController.Restore(audioSessionSnapshots);
+                }
             }
             catch { }
             finally
@@ -2143,9 +2184,54 @@ namespace WindowBackRecorder
                 audioSessionSnapshots.Clear();
                 try
                 {
-                    Dispatcher.BeginInvoke(new Action(delegate { AppendLog("대상 앱 재생 소리를 원래대로 되돌렸어요."); }));
+                    if (hadEndpointSnapshots || hadSessionSnapshots)
+                    {
+                        Dispatcher.BeginInvoke(new Action(delegate { AppendLog("재생 소리를 원래대로 되돌렸어요."); }));
+                    }
                 }
                 catch { }
+            }
+        }
+
+        private void OnMuteOutputToggleChanged(bool enabled)
+        {
+            if (activeRecording != null)
+            {
+                activeRecording.MuteOutput = enabled;
+                if (enabled)
+                {
+                    ApplyPlaybackMute();
+                }
+                else
+                {
+                    RestorePlaybackVolume();
+                }
+            }
+
+            SaveCurrentSettingsQuietly();
+        }
+
+        private void ApplyPlaybackMute()
+        {
+            if (endpointVolumeSnapshots.Count > 0) return;
+
+            try
+            {
+                var snapshots = EndpointVolumeController.MuteDefaultRenderEndpoints();
+                endpointVolumeSnapshots.AddRange(snapshots);
+                if (snapshots.Count > 0)
+                {
+                    AppendLog("내 스피커 소리를 출력 장치 끝단에서 껐어요.");
+                    SetStatus("내 스피커 소리를 끄고 녹화 중");
+                }
+                else
+                {
+                    AppendLog("끌 수 있는 출력 장치를 찾지 못했어요.");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog("내 스피커 소리를 끄지 못했어요: " + ex.Message);
             }
         }
 
@@ -2303,6 +2389,7 @@ namespace WindowBackRecorder
         {
             string fallback = GetDefaultRecordingsPath();
             string selectedPath = fallback;
+            bool muteOutputWhileRecording = false;
             try
             {
                 if (File.Exists(settingsPath))
@@ -2318,11 +2405,16 @@ namespace WindowBackRecorder
                             selectedPath = savedPath;
                         }
                     }
+                    if (dict.TryGetValue("MuteOutputWhileRecording", out value) && value is bool)
+                    {
+                        muteOutputWhileRecording = (bool)value;
+                    }
                 }
             }
             catch { }
 
             saveFolderBox.Text = selectedPath;
+            if (muteOutputToggle != null) muteOutputToggle.IsChecked = muteOutputWhileRecording;
             try { Directory.CreateDirectory(selectedPath); } catch { }
         }
 
@@ -2363,9 +2455,20 @@ namespace WindowBackRecorder
             try
             {
                 var dict = new Dictionary<string, object>();
-                dict["SettingsVersion"] = 4;
+                dict["SettingsVersion"] = 5;
                 dict["RecordingsDir"] = saveDir;
+                dict["MuteOutputWhileRecording"] = muteOutputToggle != null && muteOutputToggle.IsChecked == true;
                 File.WriteAllText(settingsPath, json.Serialize(dict), Encoding.UTF8);
+            }
+            catch { }
+        }
+
+        private void SaveCurrentSettingsQuietly()
+        {
+            try
+            {
+                string value = (saveFolderBox.Text ?? "").Trim();
+                if (value.Length > 0) SaveSettings(value);
             }
             catch { }
         }
@@ -2890,6 +2993,7 @@ namespace WindowBackRecorder
         public int Fps;
         public bool DrawCursor;
         public AudioCaptureMode AudioMode;
+        public bool MuteOutput;
         public bool HasLoopbackAudio;
         public double AudioGain = 1.0;
         public RecordingSegment CurrentSegment;
@@ -2909,12 +3013,131 @@ namespace WindowBackRecorder
         public double TrimStartSeconds;
     }
 
+    public sealed class EndpointVolumeSnapshot
+    {
+        public string DeviceId;
+        public float MasterVolume;
+        public bool Muted;
+    }
+
     public sealed class AudioSessionSnapshot
     {
         public string SessionInstanceId;
         public ISimpleAudioVolume Volume;
         public float MasterVolume;
         public bool Muted;
+    }
+
+    public static class EndpointVolumeController
+    {
+        private static readonly Guid AudioEndpointVolumeGuid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+        private static readonly Guid EventContext = new Guid("4D11B3A7-C1A1-428B-B728-DA601487E512");
+
+        public static List<EndpointVolumeSnapshot> MuteDefaultRenderEndpoints()
+        {
+            var snapshots = new List<EndpointVolumeSnapshot>();
+            var seenDeviceIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            IMMDeviceEnumerator enumerator = null;
+
+            try
+            {
+                enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+                MuteDefaultRenderEndpoint(enumerator, ERole.eConsole, seenDeviceIds, snapshots);
+                MuteDefaultRenderEndpoint(enumerator, ERole.eMultimedia, seenDeviceIds, snapshots);
+                MuteDefaultRenderEndpoint(enumerator, ERole.eCommunications, seenDeviceIds, snapshots);
+            }
+            finally
+            {
+                if (enumerator != null) Marshal.ReleaseComObject(enumerator);
+            }
+
+            return snapshots;
+        }
+
+        private static void MuteDefaultRenderEndpoint(IMMDeviceEnumerator enumerator, ERole role, HashSet<string> seenDeviceIds, List<EndpointVolumeSnapshot> snapshots)
+        {
+            IMMDevice device = null;
+            IAudioEndpointVolume endpointVolume = null;
+
+            try
+            {
+                if (enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, role, out device) != 0 || device == null) return;
+
+                string deviceId = "";
+                try { device.GetId(out deviceId); } catch { }
+                if (!string.IsNullOrEmpty(deviceId) && seenDeviceIds.Contains(deviceId)) return;
+
+                object endpointObject;
+                Guid iid = AudioEndpointVolumeGuid;
+                Marshal.ThrowExceptionForHR(device.Activate(ref iid, CLSCTX.CLSCTX_ALL, IntPtr.Zero, out endpointObject));
+                endpointVolume = (IAudioEndpointVolume)endpointObject;
+
+                float originalVolume;
+                bool originalMute;
+                Marshal.ThrowExceptionForHR(endpointVolume.GetMasterVolumeLevelScalar(out originalVolume));
+                Marshal.ThrowExceptionForHR(endpointVolume.GetMute(out originalMute));
+
+                snapshots.Add(new EndpointVolumeSnapshot
+                {
+                    DeviceId = deviceId,
+                    MasterVolume = originalVolume,
+                    Muted = originalMute
+                });
+
+                if (!string.IsNullOrEmpty(deviceId)) seenDeviceIds.Add(deviceId);
+
+                Guid context = EventContext;
+                Marshal.ThrowExceptionForHR(endpointVolume.SetMute(true, ref context));
+            }
+            catch
+            {
+            }
+            finally
+            {
+                if (endpointVolume != null) Marshal.ReleaseComObject(endpointVolume);
+                if (device != null) Marshal.ReleaseComObject(device);
+            }
+        }
+
+        public static void Restore(List<EndpointVolumeSnapshot> snapshots)
+        {
+            IMMDeviceEnumerator enumerator = null;
+            Guid context = EventContext;
+
+            try
+            {
+                enumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+                foreach (EndpointVolumeSnapshot snapshot in snapshots)
+                {
+                    IMMDevice device = null;
+                    IAudioEndpointVolume endpointVolume = null;
+                    try
+                    {
+                        if (string.IsNullOrEmpty(snapshot.DeviceId)) continue;
+
+                        if (enumerator.GetDevice(snapshot.DeviceId, out device) != 0 || device == null) continue;
+
+                        object endpointObject;
+                        Guid iid = AudioEndpointVolumeGuid;
+                        Marshal.ThrowExceptionForHR(device.Activate(ref iid, CLSCTX.CLSCTX_ALL, IntPtr.Zero, out endpointObject));
+                        endpointVolume = (IAudioEndpointVolume)endpointObject;
+
+                        endpointVolume.SetMasterVolumeLevelScalar(snapshot.MasterVolume, ref context);
+                        endpointVolume.SetMute(snapshot.Muted, ref context);
+                    }
+                    catch { }
+                    finally
+                    {
+                        if (endpointVolume != null) Marshal.ReleaseComObject(endpointVolume);
+                        if (device != null) Marshal.ReleaseComObject(device);
+                    }
+                }
+            }
+            finally
+            {
+                if (enumerator != null) Marshal.ReleaseComObject(enumerator);
+            }
+        }
     }
 
     public static class AudioSessionVolumeController
@@ -3108,6 +3331,31 @@ namespace WindowBackRecorder
         [PreserveSig] int OpenPropertyStore(uint stgmAccess, out IntPtr ppProperties);
         [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string ppstrId);
         [PreserveSig] int GetState(out uint pdwState);
+    }
+
+    [ComImport]
+    [Guid("5CDF2C82-841E-4546-9722-0CF74078229A")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioEndpointVolume
+    {
+        [PreserveSig] int RegisterControlChangeNotify(IntPtr pNotify);
+        [PreserveSig] int UnregisterControlChangeNotify(IntPtr pNotify);
+        [PreserveSig] int GetChannelCount(out uint pnChannelCount);
+        [PreserveSig] int SetMasterVolumeLevel(float fLevelDB, ref Guid pguidEventContext);
+        [PreserveSig] int SetMasterVolumeLevelScalar(float fLevel, ref Guid pguidEventContext);
+        [PreserveSig] int GetMasterVolumeLevel(out float pfLevelDB);
+        [PreserveSig] int GetMasterVolumeLevelScalar(out float pfLevel);
+        [PreserveSig] int SetChannelVolumeLevel(uint nChannel, float fLevelDB, ref Guid pguidEventContext);
+        [PreserveSig] int SetChannelVolumeLevelScalar(uint nChannel, float fLevel, ref Guid pguidEventContext);
+        [PreserveSig] int GetChannelVolumeLevel(uint nChannel, out float pfLevelDB);
+        [PreserveSig] int GetChannelVolumeLevelScalar(uint nChannel, out float pfLevel);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid pguidEventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute);
+        [PreserveSig] int GetVolumeStepInfo(out uint pnStep, out uint pnStepCount);
+        [PreserveSig] int VolumeStepUp(ref Guid pguidEventContext);
+        [PreserveSig] int VolumeStepDown(ref Guid pguidEventContext);
+        [PreserveSig] int QueryHardwareSupport(out uint pdwHardwareSupportMask);
+        [PreserveSig] int GetVolumeRange(out float pflVolumeMindB, out float pflVolumeMaxdB, out float pflVolumeIncrementdB);
     }
 
     [ComImport]

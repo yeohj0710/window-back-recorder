@@ -1261,8 +1261,11 @@ namespace WindowBackRecorder
             var args = new List<string>();
             args.Add("-hide_banner");
             args.Add("-y");
+            args.Add("-nostats");
             args.Add("-stats_period");
             args.Add("0.10");
+            args.Add("-progress");
+            args.Add("pipe:1");
 
             if (gfxCaptureAvailable)
             {
@@ -1312,9 +1315,11 @@ namespace WindowBackRecorder
             DateTime processStartedUtc = DateTime.UtcNow;
             var ready = new ManualResetEventSlim(false);
             DateTime readyUtc = DateTime.MinValue;
+            int progressFrameCount = -1;
+            double progressOutSeconds = -1;
             var process = StartProcess(GetFfmpegPath(), args, "[화면] ", delegate(string line)
             {
-                DateTime estimatedStart = EstimateFfmpegCaptureStartUtc(line, fps);
+                DateTime estimatedStart = EstimateFfmpegCaptureStartUtc(line, fps, ref progressFrameCount, ref progressOutSeconds);
                 if (estimatedStart != DateTime.MinValue && readyUtc == DateTime.MinValue)
                 {
                     readyUtc = estimatedStart;
@@ -1348,12 +1353,46 @@ namespace WindowBackRecorder
             return ready.IsSet;
         }
 
-        private DateTime EstimateFfmpegCaptureStartUtc(string line, int fps)
+        private DateTime EstimateFfmpegCaptureStartUtc(string line, int fps, ref int progressFrameCount, ref double progressOutSeconds)
         {
-            if (string.IsNullOrEmpty(line) || line.IndexOf("frame=", StringComparison.OrdinalIgnoreCase) < 0)
+            if (string.IsNullOrEmpty(line))
             {
                 return DateTime.MinValue;
             }
+
+            string trimmed = line.Trim();
+            int keySeparator = trimmed.IndexOf('=');
+            if (keySeparator > 0)
+            {
+                string key = trimmed.Substring(0, keySeparator).Trim();
+                string value = trimmed.Substring(keySeparator + 1).Trim();
+                if (string.Equals(key, "frame", StringComparison.OrdinalIgnoreCase))
+                {
+                    int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out progressFrameCount);
+                }
+                else if (string.Equals(key, "out_time_us", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(key, "out_time_ms", StringComparison.OrdinalIgnoreCase))
+                {
+                    long microseconds;
+                    if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out microseconds))
+                    {
+                        progressOutSeconds = microseconds / 1000000.0;
+                    }
+                }
+                else if (string.Equals(key, "out_time", StringComparison.OrdinalIgnoreCase))
+                {
+                    double parsedSeconds;
+                    if (TryParseFfmpegTimestamp(value, out parsedSeconds))
+                    {
+                        progressOutSeconds = parsedSeconds;
+                    }
+                }
+
+                DateTime progressStart = EstimateCaptureStartFromProgress(progressFrameCount, progressOutSeconds, fps);
+                if (progressStart != DateTime.MinValue) return progressStart;
+            }
+
+            if (line.IndexOf("frame=", StringComparison.OrdinalIgnoreCase) < 0) return DateTime.MinValue;
 
             int frameCount = ParseFfmpegProgressFrameCount(line);
             double seconds;
@@ -1366,6 +1405,20 @@ namespace WindowBackRecorder
             if (frameCount <= 0) return DateTime.MinValue;
             double frameSeconds = Math.Max(0, (frameCount - 1) / (double)Math.Max(1, fps));
             return DateTime.UtcNow.AddSeconds(-frameSeconds);
+        }
+
+        private DateTime EstimateCaptureStartFromProgress(int frameCount, double outSeconds, int fps)
+        {
+            if (outSeconds > 0.001)
+            {
+                return DateTime.UtcNow.AddSeconds(-outSeconds);
+            }
+            if (frameCount > 0)
+            {
+                double frameSeconds = Math.Max(0, (frameCount - 1) / (double)Math.Max(1, fps));
+                return DateTime.UtcNow.AddSeconds(-frameSeconds);
+            }
+            return DateTime.MinValue;
         }
 
         private int ParseFfmpegProgressFrameCount(string line)
@@ -1381,6 +1434,23 @@ namespace WindowBackRecorder
         {
             seconds = 0;
             Match match = Regex.Match(line, @"time=(\d+):(\d+):(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
+            if (!match.Success) return false;
+
+            int hours;
+            int minutes;
+            double secs;
+            if (!int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out hours)) return false;
+            if (!int.TryParse(match.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out minutes)) return false;
+            if (!double.TryParse(match.Groups[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out secs)) return false;
+
+            seconds = hours * 3600.0 + minutes * 60.0 + secs;
+            return seconds >= 0;
+        }
+
+        private bool TryParseFfmpegTimestamp(string value, out double seconds)
+        {
+            seconds = 0;
+            Match match = Regex.Match(value ?? "", @"^(\d+):(\d+):(\d+(?:\.\d+)?)$", RegexOptions.IgnoreCase);
             if (!match.Success) return false;
 
             int hours;

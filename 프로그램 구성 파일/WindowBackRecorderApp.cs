@@ -42,6 +42,7 @@ namespace WindowBackRecorder
         private readonly string settingsPath;
         private readonly JavaScriptSerializer json = new JavaScriptSerializer();
         private readonly DispatcherTimer processTimer = new DispatcherTimer();
+        private readonly DispatcherTimer toastTimer = new DispatcherTimer();
 
         private ListView windowList;
         private TextBlock audioStatusText;
@@ -51,6 +52,8 @@ namespace WindowBackRecorder
         private TextBlock targetText;
         private TextBlock engineText;
         private TextBlock outputText;
+        private Popup toastPopup;
+        private TextBlock toastText;
         private Button startButton;
         private ToggleButton listenToggle;
         private ToggleButton windowVisibilityToggle;
@@ -87,6 +90,7 @@ namespace WindowBackRecorder
         private const int HiddenWindowVisibleStripPixels = 6;
         private const int AudioReadyWaitMilliseconds = 2500;
         private const double AudioTimestampGuardSeconds = 0.12;
+        private const double ProcessAudioPrerollTrimSeconds = 0.45;
         private const int VideoReadyWaitMilliseconds = 3500;
 
         public MainWindow()
@@ -382,6 +386,67 @@ namespace WindowBackRecorder
                 FontSize = 12
             };
             footer.Child = logBox;
+
+            BuildToastPopup();
+        }
+
+        private void BuildToastPopup()
+        {
+            toastText = new TextBlock
+            {
+                Foreground = Brush("#ffffff"),
+                FontSize = 14,
+                FontWeight = FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 360
+            };
+
+            var toastBorder = new Border
+            {
+                Background = Brush("#111827"),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(16, 12, 16, 12),
+                Child = toastText,
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    BlurRadius = 18,
+                    ShadowDepth = 4,
+                    Opacity = 0.22
+                }
+            };
+
+            toastPopup = new Popup
+            {
+                PlacementTarget = this,
+                Placement = PlacementMode.Center,
+                AllowsTransparency = true,
+                StaysOpen = true,
+                IsHitTestVisible = false,
+                PopupAnimation = PopupAnimation.Fade,
+                Child = toastBorder
+            };
+
+            toastTimer.Interval = TimeSpan.FromSeconds(2.4);
+            toastTimer.Tick += delegate
+            {
+                toastTimer.Stop();
+                if (toastPopup != null) toastPopup.IsOpen = false;
+            };
+        }
+
+        private void ShowToast(string message)
+        {
+            if (toastPopup == null || toastText == null)
+            {
+                SetStatus(message);
+                return;
+            }
+
+            toastText.Text = message;
+            toastPopup.IsOpen = false;
+            toastPopup.IsOpen = true;
+            toastTimer.Stop();
+            toastTimer.Start();
         }
 
         private Border CreatePanel()
@@ -977,6 +1042,7 @@ namespace WindowBackRecorder
             if (selectedWindow == null)
             {
                 SetStatus("먼저 녹화할 창을 선택해주세요");
+                ShowToast("녹화할 창을 먼저 선택한 뒤 녹화 시작을 눌러주세요.");
                 return;
             }
 
@@ -1117,6 +1183,7 @@ namespace WindowBackRecorder
                 AudioPath = audioStarted ? audioPath : null,
                 HasLoopbackAudio = audioStarted,
                 AudioGain = 1.0,
+                AudioMode = recording.AudioMode,
                 Fps = recording.Fps,
                 TrimStartSeconds = 0,
                 VideoStartedUtc = videoStartedUtc,
@@ -1804,8 +1871,14 @@ namespace WindowBackRecorder
             }
 
             double audioStartedBeforeVideo = (segment.VideoStartedUtc - segment.AudioStartedUtc).TotalSeconds;
-            double raw = segment.TrimStartSeconds + audioStartedBeforeVideo;
+            double raw = segment.TrimStartSeconds + audioStartedBeforeVideo + GetAudioPrerollTrimSeconds(segment);
             return raw > 0 ? Math.Max(0, raw - AudioTimestampGuardSeconds) : raw;
+        }
+
+        private double GetAudioPrerollTrimSeconds(RecordingSegment segment)
+        {
+            if (segment == null) return 0;
+            return segment.AudioMode == AudioCaptureMode.Process ? ProcessAudioPrerollTrimSeconds : 0;
         }
 
         private void FinalizeVideoOnlyRecording(RecordingState recording)
@@ -3008,6 +3081,7 @@ namespace WindowBackRecorder
         public string AudioPath;
         public bool HasLoopbackAudio;
         public double AudioGain = 1.0;
+        public AudioCaptureMode AudioMode;
         public int Fps;
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;

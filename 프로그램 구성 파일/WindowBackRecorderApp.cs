@@ -52,7 +52,6 @@ namespace WindowBackRecorder
         private TextBlock engineText;
         private TextBlock outputText;
         private Button startButton;
-        private Button stopButton;
         private ToggleButton listenToggle;
         private ToggleButton windowVisibilityToggle;
         private ToggleButton silentPlaybackToggle;
@@ -298,22 +297,10 @@ namespace WindowBackRecorder
             Grid.SetColumn(openFolder, 2);
             folderRow.Children.Add(openFolder);
 
-            var buttonGrid = new Grid { Margin = new Thickness(0, 4, 0, 18) };
-            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(10) });
-            buttonGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            controls.Children.Add(buttonGrid);
-
             startButton = CreateButton("녹화 시작", ToggleRecordingAction, "#1e6bff", "#3d82ff");
             startButton.Height = 46;
-            Grid.SetColumn(startButton, 0);
-            buttonGrid.Children.Add(startButton);
-
-            stopButton = CreateButton("녹화 종료", StopRecordingFromUi, "#be123c", "#9f1239");
-            stopButton.Height = 46;
-            stopButton.IsEnabled = false;
-            Grid.SetColumn(stopButton, 2);
-            buttonGrid.Children.Add(stopButton);
+            startButton.Margin = new Thickness(0, 4, 0, 18);
+            controls.Children.Add(startButton);
 
             controls.Children.Add(SectionLabel("녹화창 숨기기"));
             var minimizeWarning = MetaText("창을 직접 최소화하면 녹화가 안 됩니다. 아래 버튼을 사용하세요.");
@@ -942,13 +929,43 @@ namespace WindowBackRecorder
 
         private void ToggleRecordingAction()
         {
-            if (activeRecording != null || isStopping)
+            if (isStopping)
             {
-                SetStatus("녹화 중입니다. 끝내려면 녹화 종료를 눌러주세요");
+                SetStatus("녹화 종료 처리 중이에요");
+                return;
+            }
+
+            if (activeRecording != null)
+            {
+                StopRecording();
                 return;
             }
 
             StartRecording();
+        }
+
+        private void SetRecordButtonIdle()
+        {
+            if (startButton == null) return;
+            startButton.Content = "녹화 시작";
+            startButton.IsEnabled = true;
+            startButton.Style = CreateButtonStyle("#1e6bff", "#3d82ff");
+        }
+
+        private void SetRecordButtonRecording()
+        {
+            if (startButton == null) return;
+            startButton.Content = "녹화 종료";
+            startButton.IsEnabled = true;
+            startButton.Style = CreateButtonStyle("#be123c", "#9f1239");
+        }
+
+        private void SetRecordButtonBusy()
+        {
+            if (startButton == null) return;
+            startButton.Content = "처리 중";
+            startButton.IsEnabled = false;
+            startButton.Style = CreateButtonStyle("#18222c", "#253244");
         }
 
         private void StartRecording()
@@ -1012,9 +1029,7 @@ namespace WindowBackRecorder
                 StartRecordingSegment(recording);
                 ApplySilentPlaybackIfRecording();
 
-                startButton.Content = "녹화 중";
-                startButton.IsEnabled = false;
-                stopButton.IsEnabled = true;
+                SetRecordButtonRecording();
                 saveFolderBox.IsEnabled = false;
                 fpsSlider.IsEnabled = false;
                 windowList.IsEnabled = false;
@@ -1027,8 +1042,7 @@ namespace WindowBackRecorder
                 AppendLog("녹화를 시작하지 못했어요: " + ex.Message);
                 StopProcessesOnly();
                 activeRecording = null;
-                startButton.Content = "녹화 시작";
-                startButton.IsEnabled = true;
+                SetRecordButtonIdle();
                 fpsSlider.IsEnabled = true;
                 windowList.IsEnabled = true;
                 SetStatus("시작 실패");
@@ -1547,11 +1561,6 @@ namespace WindowBackRecorder
             return process;
         }
 
-        private void StopRecordingFromUi()
-        {
-            StopRecording();
-        }
-
         private void StopRecording()
         {
             if (isStopping) return;
@@ -1560,10 +1569,7 @@ namespace WindowBackRecorder
             isStopping = true;
             activeRecording = null;
 
-            startButton.IsEnabled = false;
-            stopButton.IsEnabled = false;
-            stopButton.Content = "처리 중";
-            startButton.Content = "녹화 시작";
+            SetRecordButtonBusy();
             saveFolderBox.IsEnabled = true;
             if (targetWindowHidden) RestoreTargetWindowFromHidden();
             SetStatus("녹화 종료 처리 중...");
@@ -1592,10 +1598,7 @@ namespace WindowBackRecorder
                         Dispatcher.BeginInvoke(new Action(delegate
                         {
                             isStopping = false;
-                            startButton.IsEnabled = true;
-                            stopButton.IsEnabled = false;
-                            stopButton.Content = "녹화 종료";
-                            startButton.Content = "녹화 시작";
+                            SetRecordButtonIdle();
                             saveFolderBox.IsEnabled = true;
                             fpsSlider.IsEnabled = true;
                             silentPlaybackToggle.IsEnabled = true;

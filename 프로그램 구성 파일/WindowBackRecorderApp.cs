@@ -469,11 +469,11 @@ namespace WindowBackRecorder
        TargetType=""{x:Type ScrollBar}"">
   <Setter Property=""Width"" Value=""12""/>
   <Setter Property=""MinWidth"" Value=""12""/>
-  <Setter Property=""Background"" Value=""#edf1f6""/>
+  <Setter Property=""Background"" Value=""Transparent""/>
   <Setter Property=""Template"">
     <Setter.Value>
       <ControlTemplate TargetType=""{x:Type ScrollBar}"">
-        <Border Background=""#edf1f6"">
+        <Border Background=""Transparent"">
           <Track x:Name=""PART_Track"" IsDirectionReversed=""True"">
             <Track.DecreaseRepeatButton>
               <RepeatButton Command=""{x:Static ScrollBar.PageUpCommand}"" Opacity=""0"" Focusable=""False""/>

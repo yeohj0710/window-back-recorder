@@ -1142,13 +1142,13 @@ namespace WindowBackRecorder
 
         private void StopCurrentSegment()
         {
-            StopCurrentSegment(activeRecording, 3500, 2000);
+            StopCurrentSegment(activeRecording, 3500, 2000, false);
         }
 
-        private void StopCurrentSegment(RecordingState recording, int videoWaitMs, int audioWaitMs)
+        private void StopCurrentSegment(RecordingState recording, int videoWaitMs, int audioWaitMs, bool keepReducedMode)
         {
             EndPauseRange(recording);
-            EndAudioBoostRange(recording, silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true);
+            EndAudioBoostRange(recording, keepReducedMode);
             var videoProcess = ffmpegProcess;
             var soundProcess = audioProcess;
             ffmpegProcess = null;
@@ -1339,7 +1339,7 @@ namespace WindowBackRecorder
             {
                 try
                 {
-                    StopCurrentSegment(recording, 3500, 2000);
+                    StopCurrentSegment(recording, 3500, 2000, false);
                     RestorePlaybackVolume();
 
                     if (recording != null)
@@ -1347,28 +1347,36 @@ namespace WindowBackRecorder
                         FinalizeRecording(recording);
                     }
                 }
+                catch (Exception ex)
+                {
+                    QueueUiLog("녹화 종료 처리 중 오류가 났어요: " + ex.Message);
+                }
                 finally
                 {
-                    Dispatcher.BeginInvoke(new Action(delegate
+                    try
                     {
-                        isStopping = false;
-                        startButton.IsEnabled = true;
-                        stopButton.IsEnabled = false;
-                        stopButton.Content = "녹화 종료";
-                        startButton.Content = "녹화 시작";
-                        saveFolderBox.IsEnabled = true;
-                        fpsSlider.IsEnabled = true;
-                        silentPlaybackToggle.IsEnabled = true;
-                        windowList.IsEnabled = true;
-                        SetStatus("준비됨");
-                    }));
+                        Dispatcher.BeginInvoke(new Action(delegate
+                        {
+                            isStopping = false;
+                            startButton.IsEnabled = true;
+                            stopButton.IsEnabled = false;
+                            stopButton.Content = "녹화 종료";
+                            startButton.Content = "녹화 시작";
+                            saveFolderBox.IsEnabled = true;
+                            fpsSlider.IsEnabled = true;
+                            silentPlaybackToggle.IsEnabled = true;
+                            windowList.IsEnabled = true;
+                            SetStatus("준비됨");
+                        }));
+                    }
+                    catch { }
                 }
             });
         }
 
         private void StopProcessesOnly()
         {
-            StopCurrentSegment(activeRecording, 3500, 2000);
+            StopCurrentSegment(activeRecording, 3500, 2000, false);
             RestorePlaybackVolume();
         }
 

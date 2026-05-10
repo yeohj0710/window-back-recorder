@@ -82,6 +82,7 @@ namespace WindowBackRecorder
         private const string TempFolderName = "recording-temp";
         private const int HiddenWindowVisibleStripPixels = 6;
         private const int AudioReadyWaitMilliseconds = 2500;
+        private const double AudioTimestampGuardSeconds = 0.12;
         private const int VideoReadyWaitMilliseconds = 3500;
 
         public MainWindow()
@@ -1686,6 +1687,7 @@ namespace WindowBackRecorder
             var args = new List<string>();
             args.Add("-hide_banner");
             args.Add("-y");
+            int outputFps = GetSegmentOutputFps(segment);
             double audioTrimSeconds = GetAudioTrimSeconds(segment);
             double audioDelaySeconds = GetAudioDelaySeconds(segment);
             args.Add("-i");
@@ -1704,10 +1706,14 @@ namespace WindowBackRecorder
             args.Add("veryfast");
             args.Add("-crf");
             args.Add("23");
+            args.Add("-g");
+            args.Add(outputFps.ToString(CultureInfo.InvariantCulture));
+            args.Add("-keyint_min");
+            args.Add(outputFps.ToString(CultureInfo.InvariantCulture));
+            args.Add("-sc_threshold");
+            args.Add("0");
             args.Add("-pix_fmt");
             args.Add("yuv420p");
-            args.Add("-fps_mode");
-            args.Add("vfr");
             args.Add("-c:a");
             args.Add("aac");
             args.Add("-b:a");
@@ -1727,6 +1733,8 @@ namespace WindowBackRecorder
                 videoFilters.Add("trim=start=" + FormatSeconds(segment.TrimStartSeconds));
             }
             videoFilters.Add("setpts=PTS-STARTPTS");
+            int outputFps = GetSegmentOutputFps(segment);
+            videoFilters.Add("fps=fps=" + outputFps.ToString(CultureInfo.InvariantCulture));
 
             var audioFilters = new List<string>();
             if (audioTrimSeconds > 0)
@@ -1743,6 +1751,12 @@ namespace WindowBackRecorder
             audioFilters.Add("apad");
 
             return "[0:v]" + string.Join(",", videoFilters.ToArray()) + "[v];[1:a]" + string.Join(",", audioFilters.ToArray()) + "[a]";
+        }
+
+        private int GetSegmentOutputFps(RecordingSegment segment)
+        {
+            if (segment == null || segment.Fps <= 0) return 60;
+            return Math.Max(5, Math.Min(60, segment.Fps));
         }
 
         private double GetAudioTrimSeconds(RecordingSegment segment)
@@ -1765,7 +1779,8 @@ namespace WindowBackRecorder
             }
 
             double audioStartedBeforeVideo = (segment.VideoStartedUtc - segment.AudioStartedUtc).TotalSeconds;
-            return segment.TrimStartSeconds + audioStartedBeforeVideo;
+            double raw = segment.TrimStartSeconds + audioStartedBeforeVideo;
+            return raw > 0 ? Math.Max(0, raw - AudioTimestampGuardSeconds) : raw;
         }
 
         private void FinalizeVideoOnlyRecording(RecordingState recording)

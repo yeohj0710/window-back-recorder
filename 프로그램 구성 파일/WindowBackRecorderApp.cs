@@ -66,6 +66,7 @@ namespace WindowBackRecorder
         private bool isStopping;
         private bool isPausing;
         private bool isPaused;
+        private bool isSwitchingAudioMode;
         private bool targetWindowHidden;
         private bool silentPlaybackApplied;
         private bool processAudioSupportChecked;
@@ -338,22 +339,11 @@ namespace WindowBackRecorder
             silentPlaybackToggle = CreateSwitchToggle("소리 줄이고 녹화하기", false);
             silentPlaybackToggle.Checked += delegate
             {
-                lastSilentPlaybackAttemptUtc = DateTime.MinValue;
-                if (activeRecording != null)
-                {
-                    activeRecording.BoostAudio = true;
-                    activeRecording.AudioGain = ReducedPlaybackGain;
-                }
-                ApplySilentPlaybackIfRecording();
+                ChangeReducedAudioMode(true);
             };
             silentPlaybackToggle.Unchecked += delegate
             {
-                if (activeRecording != null)
-                {
-                    activeRecording.BoostAudio = false;
-                    activeRecording.AudioGain = 1.0;
-                }
-                RestorePlaybackVolume();
+                ChangeReducedAudioMode(false);
             };
             controls.Children.Add(silentPlaybackToggle);
 
@@ -446,7 +436,7 @@ namespace WindowBackRecorder
                 Foreground = Brush("#111827"),
                 FontSize = 18,
                 FontWeight = FontWeights.Bold,
-                Margin = new Thickness(0, 0, 0, 12)
+                Margin = new Thickness(0, 18, 0, 12)
             };
         }
 
@@ -1014,7 +1004,8 @@ namespace WindowBackRecorder
                     DrawCursor = true,
                     AudioMode = audioMode,
                     BoostAudio = silentPlaybackToggle.IsChecked == true,
-                    AudioGain = silentPlaybackToggle.IsChecked == true ? ReducedPlaybackGain : 1.0
+                    AudioGain = silentPlaybackToggle.IsChecked == true ? ReducedPlaybackGain : 1.0,
+                    CurrentAudioGain = silentPlaybackToggle.IsChecked == true ? ReducedPlaybackGain : 1.0
                 };
 
                 activeRecording = recording;
@@ -1026,6 +1017,7 @@ namespace WindowBackRecorder
                 startButton.IsEnabled = true;
                 stopButton.IsEnabled = true;
                 saveFolderBox.IsEnabled = false;
+                fpsSlider.IsEnabled = false;
                 windowList.IsEnabled = false;
                 outputText.Text = "저장 파일: " + finalPath;
                 SetStatus(recording.HasLoopbackAudio ? "녹화 중" : "화면 녹화 중");
@@ -1036,6 +1028,7 @@ namespace WindowBackRecorder
                 AppendLog("녹화를 시작하지 못했어요: " + ex.Message);
                 StopProcessesOnly();
                 activeRecording = null;
+                fpsSlider.IsEnabled = true;
                 windowList.IsEnabled = true;
                 SetStatus("시작 실패");
             }
@@ -1150,7 +1143,9 @@ namespace WindowBackRecorder
             {
                 VideoPath = videoPath,
                 AudioPath = audioStarted ? audioPath : null,
-                HasLoopbackAudio = audioStarted
+                HasLoopbackAudio = audioStarted,
+                BoostAudio = recording.CurrentAudioGain > 1.01,
+                AudioGain = recording.CurrentAudioGain
             });
         }
 
@@ -1340,6 +1335,7 @@ namespace WindowBackRecorder
             stopButton.Content = "처리 중";
             isPausing = false;
             isPaused = false;
+            isSwitchingAudioMode = false;
             startButton.Content = "녹화 시작";
             saveFolderBox.IsEnabled = true;
             if (targetWindowHidden) RestoreTargetWindowFromHidden();
@@ -1368,6 +1364,8 @@ namespace WindowBackRecorder
                         stopButton.Content = "녹화 종료";
                         startButton.Content = "녹화 시작";
                         saveFolderBox.IsEnabled = true;
+                        fpsSlider.IsEnabled = true;
+                        silentPlaybackToggle.IsEnabled = true;
                         windowList.IsEnabled = true;
                         SetStatus("준비됨");
                     }));
@@ -1451,8 +1449,8 @@ namespace WindowBackRecorder
             foreach (RecordingSegment segment in recording.Segments)
             {
                 string muxedPath = Path.ChangeExtension(segment.VideoPath, ".mux.mp4");
-                int code = RunMux(segment.VideoPath, segment.AudioPath, muxedPath, recording.BoostAudio, recording.AudioGain, out err);
-                if (code != 0 && recording.BoostAudio)
+                int code = RunMux(segment.VideoPath, segment.AudioPath, muxedPath, segment.BoostAudio, segment.AudioGain, out err);
+                if (code != 0 && segment.BoostAudio)
                 {
                     QueueUiLog("소리 보정 처리에 실패해서 기본 방식으로 다시 저장합니다.");
                     code = RunMux(segment.VideoPath, segment.AudioPath, muxedPath, false, 1.0, out err);
@@ -1515,9 +1513,9 @@ namespace WindowBackRecorder
         {
             if (audioGain > 1.01)
             {
-                return "volume=" + audioGain.ToString("0.###", CultureInfo.InvariantCulture) + ",alimiter=limit=0.98,loudnorm=I=-16:TP=-1.5:LRA=11";
+                return "volume=" + audioGain.ToString("0.###", CultureInfo.InvariantCulture) + ",alimiter=limit=0.98";
             }
-            return "loudnorm=I=-16:TP=-1.5:LRA=11";
+            return "volume=1";
         }
 
         private void FinalizeVideoOnlyRecording(RecordingState recording)
@@ -1689,13 +1687,17 @@ namespace WindowBackRecorder
             }
 
             savedBounds = NativeWindows.GetBounds(selectedWindow.Handle);
+            var area = WinForms.Screen.PrimaryScreen.WorkingArea;
+            int visibleStrip = Math.Min(140, Math.Max(80, savedBounds.Value.Width / 8));
+            int x = area.Right - visibleStrip;
+            int y = Math.Max(area.Top, Math.Min(savedBounds.Value.Top, area.Bottom - Math.Min(160, savedBounds.Value.Height)));
 
             NativeMethods.ShowWindow(selectedWindow.Handle, NativeMethods.SW_SHOWNOACTIVATE);
-            NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_BOTTOM, 0, 0, 0, 0,
-                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
+            NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_TOPMOST, x, y, savedBounds.Value.Width, savedBounds.Value.Height,
+                NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
             targetWindowHidden = true;
             if (windowVisibilityToggle != null) windowVisibilityToggle.Content = "녹화창 다시 띄우기";
-            SetStatus("녹화창을 뒤로 보냈어요");
+            SetStatus("녹화창을 가장자리에 뒀어요");
         }
 
         private void RestoreTargetWindowFromHidden()
@@ -1730,8 +1732,10 @@ namespace WindowBackRecorder
 
             var b = savedBounds.Value;
             NativeMethods.ShowWindow(selectedWindow.Handle, NativeMethods.SW_RESTORE);
-            NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_TOP, b.Left, b.Top, b.Width, b.Height,
+            NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_NOTOPMOST, b.Left, b.Top, b.Width, b.Height,
                 NativeMethods.SWP_SHOWWINDOW);
+            NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_TOP, b.Left, b.Top, b.Width, b.Height,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_SHOWWINDOW);
             NativeMethods.SetForegroundWindow(selectedWindow.Handle);
             targetWindowHidden = false;
             if (windowVisibilityToggle != null)
@@ -1789,6 +1793,7 @@ namespace WindowBackRecorder
                 silentPlaybackApplied = audioSessionSnapshots.Count > 0;
                 activeRecording.BoostAudio = true;
                 activeRecording.AudioGain = ReducedPlaybackGain;
+                activeRecording.CurrentAudioGain = ReducedPlaybackGain;
                 if (silentPlaybackApplied)
                 {
                     if (snapshots.Count > 0) AppendLog("대상 앱 재생 소리를 줄였어요. 저장할 때 소리는 다시 키웁니다.");
@@ -1802,6 +1807,75 @@ namespace WindowBackRecorder
             {
                 AppendLog("대상 앱 소리를 낮추지 못했어요: " + ex.Message);
             }
+        }
+
+        private void ChangeReducedAudioMode(bool enabled)
+        {
+            lastSilentPlaybackAttemptUtc = DateTime.MinValue;
+
+            if (activeRecording == null)
+            {
+                if (!enabled) RestorePlaybackVolume();
+                return;
+            }
+
+            activeRecording.BoostAudio = enabled;
+            activeRecording.AudioGain = enabled ? ReducedPlaybackGain : 1.0;
+            activeRecording.CurrentAudioGain = activeRecording.AudioGain;
+
+            if (enabled)
+            {
+                ApplySilentPlaybackIfRecording();
+            }
+            else
+            {
+                RestorePlaybackVolume();
+            }
+
+            if (isStopping || isPausing || isPaused || isSwitchingAudioMode || ffmpegProcess == null)
+            {
+                return;
+            }
+
+            var recording = activeRecording;
+            isSwitchingAudioMode = true;
+            silentPlaybackToggle.IsEnabled = false;
+            startButton.IsEnabled = false;
+            stopButton.IsEnabled = false;
+            SetStatus("소리 설정 반영 중...");
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                StopCurrentSegment(1600, 1000);
+
+                Dispatcher.BeginInvoke(new Action(delegate
+                {
+                    try
+                    {
+                        if (activeRecording == recording && !isStopping)
+                        {
+                            StartRecordingSegment(recording);
+                            SetStatus("녹화 중");
+                            AppendLog("소리 설정을 녹화에 반영했어요.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendLog("소리 설정을 반영하지 못했어요: " + ex.Message);
+                    }
+                    finally
+                    {
+                        isSwitchingAudioMode = false;
+                        silentPlaybackToggle.IsEnabled = true;
+                        if (activeRecording == recording && !isStopping)
+                        {
+                            startButton.IsEnabled = true;
+                            stopButton.IsEnabled = true;
+                            startButton.Content = isPaused ? "다시 시작" : "일시정지";
+                        }
+                    }
+                }));
+            });
         }
 
         private void RestorePlaybackVolume()
@@ -1891,6 +1965,22 @@ namespace WindowBackRecorder
             {
                 lastWindowScanUtc = DateTime.UtcNow;
                 RefreshWindows(true);
+            }
+
+            if (isPausing)
+            {
+                busyTick = (busyTick + 1) % 4;
+                string dots = new string('.', busyTick);
+                SetStatus("일시정지 중" + dots);
+                startButton.Content = "일시정지 중" + dots;
+                return;
+            }
+
+            if (isSwitchingAudioMode)
+            {
+                busyTick = (busyTick + 1) % 4;
+                SetStatus("소리 설정 반영 중" + new string('.', busyTick));
+                return;
             }
 
             if (activeRecording != null && silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true)
@@ -2412,6 +2502,7 @@ namespace WindowBackRecorder
         public bool HasLoopbackAudio;
         public bool BoostAudio;
         public double AudioGain = 1.0;
+        public double CurrentAudioGain = 1.0;
         public int SegmentIndex;
     }
 
@@ -2420,6 +2511,8 @@ namespace WindowBackRecorder
         public string VideoPath;
         public string AudioPath;
         public bool HasLoopbackAudio;
+        public bool BoostAudio;
+        public double AudioGain = 1.0;
     }
 
     public sealed class AudioSessionSnapshot
@@ -2794,6 +2887,8 @@ namespace WindowBackRecorder
         public const uint SWP_SHOWWINDOW = 0x0040;
         public static readonly IntPtr HWND_TOP = IntPtr.Zero;
         public static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        public static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        public static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
 
         public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 

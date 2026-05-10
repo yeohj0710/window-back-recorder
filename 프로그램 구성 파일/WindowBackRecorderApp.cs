@@ -82,6 +82,8 @@ namespace WindowBackRecorder
         private const string DefaultRecordingsFolderName = "녹화 완료된 동영상";
         private const string OldDefaultRecordingsFolderName = "녹화 완료 영상";
         private const string TempFolderName = "recording-temp";
+        private const string HideWindowButtonText = "녹화창 숨기기 (녹화 중 ON/OFF 가능)";
+        private const string ShowWindowButtonText = "녹화창 다시 띄우기 (녹화 중 ON/OFF 가능)";
         private const int HiddenWindowVisibleStripPixels = 6;
         private const int AudioReadyWaitMilliseconds = 2500;
         private const double AudioTimestampGuardSeconds = 0.12;
@@ -301,7 +303,7 @@ namespace WindowBackRecorder
             startButton.Margin = new Thickness(0, 4, 0, 18);
             controls.Children.Add(startButton);
 
-            windowVisibilityToggle = CreateToggle("녹화창 숨기기 (다른 작업 가능)", false);
+            windowVisibilityToggle = CreateToggle(HideWindowButtonText, false);
             windowVisibilityToggle.Height = 38;
             windowVisibilityToggle.Margin = new Thickness(0, 0, 0, 8);
             windowVisibilityToggle.Checked += delegate { HideTargetWindowForRecording(); };
@@ -318,7 +320,7 @@ namespace WindowBackRecorder
             audioStatusText.TextWrapping = TextWrapping.Wrap;
             audioStatusText.Margin = new Thickness(0, 0, 0, 6);
 
-            muteOutputToggle = CreateToggle("내 스피커 소리 끄고 녹화하기", false);
+            muteOutputToggle = CreateToggle("스피커 소리 끄기 (녹화 중 ON/OFF 가능)", false);
             muteOutputToggle.Height = 38;
             muteOutputToggle.Margin = new Thickness(0, 0, 0, 8);
             muteOutputToggle.Checked += delegate { OnMuteOutputToggleChanged(true); };
@@ -2088,7 +2090,7 @@ namespace WindowBackRecorder
             NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_NOTOPMOST, x, y, savedBounds.Value.Width, savedBounds.Value.Height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
             targetWindowHidden = true;
-            if (windowVisibilityToggle != null) windowVisibilityToggle.Content = "녹화창 다시 띄우기";
+            if (windowVisibilityToggle != null) windowVisibilityToggle.Content = ShowWindowButtonText;
             SetStatus("녹화창을 거의 보이지 않게 숨겼어요");
         }
 
@@ -2096,7 +2098,7 @@ namespace WindowBackRecorder
         {
             if (!targetWindowHidden)
             {
-                if (windowVisibilityToggle != null) windowVisibilityToggle.Content = "녹화창 숨기기 (다른 작업 가능)";
+                if (windowVisibilityToggle != null) windowVisibilityToggle.Content = HideWindowButtonText;
                 return;
             }
 
@@ -2105,7 +2107,7 @@ namespace WindowBackRecorder
                 targetWindowHidden = false;
                 if (windowVisibilityToggle != null)
                 {
-                    windowVisibilityToggle.Content = "녹화창 숨기기 (다른 작업 가능)";
+                    windowVisibilityToggle.Content = HideWindowButtonText;
                     windowVisibilityToggle.IsChecked = false;
                 }
                 return;
@@ -2116,7 +2118,7 @@ namespace WindowBackRecorder
                 targetWindowHidden = false;
                 if (windowVisibilityToggle != null)
                 {
-                    windowVisibilityToggle.Content = "녹화창 숨기기 (다른 작업 가능)";
+                    windowVisibilityToggle.Content = HideWindowButtonText;
                     windowVisibilityToggle.IsChecked = false;
                 }
                 return;
@@ -2132,7 +2134,7 @@ namespace WindowBackRecorder
             targetWindowHidden = false;
             if (windowVisibilityToggle != null)
             {
-                windowVisibilityToggle.Content = "녹화창 숨기기 (다른 작업 가능)";
+                windowVisibilityToggle.Content = HideWindowButtonText;
                 windowVisibilityToggle.IsChecked = false;
             }
             SetStatus("녹화창을 다시 띄웠어요");

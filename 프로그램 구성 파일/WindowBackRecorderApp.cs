@@ -80,7 +80,6 @@ namespace WindowBackRecorder
         private const string DefaultRecordingsFolderName = "녹화 완료된 동영상";
         private const string OldDefaultRecordingsFolderName = "녹화 완료 영상";
         private const string TempFolderName = "recording-temp";
-        private const double StartWarmupTrimSeconds = 3.0;
         private const int HiddenWindowVisibleStripPixels = 6;
         private const int AudioReadyWaitMilliseconds = 2500;
         private const int VideoReadyWaitMilliseconds = 3500;
@@ -1030,10 +1029,15 @@ namespace WindowBackRecorder
             string segmentBase = Path.Combine(recording.TempDirectory, stem + ".part" + recording.SegmentIndex.ToString("000", CultureInfo.InvariantCulture));
             string videoPath = segmentBase + ".video.mkv";
             string audioPath = recording.AudioMode != AudioCaptureMode.None ? segmentBase + ".audio.wav" : null;
-            bool isFirstSegment = recording.Segments.Count == 0;
+
+            DateTime videoStartedUtc;
+            VideoCaptureClock videoClock;
+            ffmpegProcess = StartFfmpegCapture(recording.Target, videoPath, recording.Fps, recording.DrawCursor, false, out videoStartedUtc, out videoClock);
 
             bool audioStarted = false;
             DateTime audioStartedUtc = DateTime.MinValue;
+            double videoTrimStartSeconds = 0;
+            bool audioAlignedToTrimStart = false;
             if (recording.AudioMode != AudioCaptureMode.None)
             {
                 try
@@ -1048,6 +1052,8 @@ namespace WindowBackRecorder
                     }
                     audioStarted = true;
                     recording.HasLoopbackAudio = true;
+                    videoTrimStartSeconds = EstimateVideoSecondsAt(videoClock, audioStartedUtc, videoStartedUtc);
+                    audioAlignedToTrimStart = true;
                 }
                 catch (Exception audioEx)
                 {
@@ -1061,6 +1067,8 @@ namespace WindowBackRecorder
                             audioProcess = StartLoopbackAudio(audioPath, null, false, out audioStartedUtc);
                             audioStarted = true;
                             recording.HasLoopbackAudio = true;
+                            videoTrimStartSeconds = EstimateVideoSecondsAt(videoClock, audioStartedUtc, videoStartedUtc);
+                            audioAlignedToTrimStart = true;
                             AppendLog("기본 출력 소리 녹음으로 대신 저장합니다.");
                         }
                         catch (Exception fallbackEx)
@@ -1079,9 +1087,6 @@ namespace WindowBackRecorder
                 }
             }
 
-            DateTime videoStartedUtc;
-            ffmpegProcess = StartFfmpegCapture(recording.Target, videoPath, recording.Fps, recording.DrawCursor, false, out videoStartedUtc);
-
             var segment = new RecordingSegment
             {
                 VideoPath = videoPath,
@@ -1089,22 +1094,21 @@ namespace WindowBackRecorder
                 HasLoopbackAudio = audioStarted,
                 AudioGain = 1.0,
                 Fps = recording.Fps,
-                TrimStartSeconds = isFirstSegment ? StartWarmupTrimSeconds : 0,
+                TrimStartSeconds = videoTrimStartSeconds,
                 VideoStartedUtc = videoStartedUtc,
-                AudioStartedUtc = audioStarted ? audioStartedUtc : DateTime.MinValue
+                AudioStartedUtc = audioStarted ? audioStartedUtc : DateTime.MinValue,
+                AudioAlignedToTrimStart = audioAlignedToTrimStart
             };
 
             recording.CurrentSegment = segment;
-            recording.SegmentStartedUtc = videoStartedUtc;
+            recording.SegmentStartedUtc = videoStartedUtc.AddSeconds(videoTrimStartSeconds);
             recording.Segments.Add(segment);
 
             if (audioStarted && audioStartedUtc != DateTime.MinValue)
             {
-                double syncMs = (videoStartedUtc - audioStartedUtc).TotalMilliseconds;
-                if (Math.Abs(syncMs) >= 20)
-                {
-                    AppendLog("싱크 보정: 소리 시작 차이 " + syncMs.ToString("0", CultureInfo.InvariantCulture) + "ms");
-                }
+                AppendLog("싱크 기준: 소리 시작 시점부터 영상 저장, 앞부분 "
+                    + (videoTrimStartSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
+                    + "ms 제외");
             }
         }
 
@@ -1152,9 +1156,10 @@ namespace WindowBackRecorder
             audioDone.Wait(audioWaitMs + 2500);
         }
 
-        private Process StartFfmpegCapture(WindowInfo target, string outputPath, int fps, bool drawCursor, bool finalOutput, out DateTime captureStartedUtc)
+        private Process StartFfmpegCapture(WindowInfo target, string outputPath, int fps, bool drawCursor, bool finalOutput, out DateTime captureStartedUtc, out VideoCaptureClock captureClock)
         {
             captureStartedUtc = DateTime.MinValue;
+            captureClock = new VideoCaptureClock();
             var args = new List<string>();
             args.Add("-hide_banner");
             args.Add("-y");
@@ -1214,9 +1219,18 @@ namespace WindowBackRecorder
             DateTime readyUtc = DateTime.MinValue;
             int progressFrameCount = -1;
             double progressOutSeconds = -1;
+            VideoCaptureClock clock = captureClock;
             var process = StartProcess(GetFfmpegPath(), args, "[화면] ", delegate(string line)
             {
                 DateTime estimatedStart = EstimateFfmpegCaptureStartUtc(line, fps, ref progressFrameCount, ref progressOutSeconds);
+                if (IsFfmpegTimingProgressLine(line))
+                {
+                    double elapsedSeconds = EstimateCaptureElapsedSeconds(progressFrameCount, progressOutSeconds, fps);
+                    if (elapsedSeconds >= 0)
+                    {
+                        clock.Update(elapsedSeconds, DateTime.UtcNow);
+                    }
+                }
                 if (estimatedStart != DateTime.MinValue && readyUtc == DateTime.MinValue)
                 {
                     readyUtc = estimatedStart;
@@ -1236,6 +1250,32 @@ namespace WindowBackRecorder
 
             captureStartedUtc = readyUtc;
             return process;
+        }
+
+        private double EstimateVideoSecondsAt(VideoCaptureClock clock, DateTime whenUtc, DateTime fallbackVideoStartUtc)
+        {
+            double seconds;
+            if (clock != null && clock.TryEstimateSeconds(whenUtc, out seconds))
+            {
+                return Math.Max(0, seconds);
+            }
+
+            if (fallbackVideoStartUtc != DateTime.MinValue && whenUtc != DateTime.MinValue)
+            {
+                return Math.Max(0, (whenUtc - fallbackVideoStartUtc).TotalSeconds);
+            }
+
+            return 0;
+        }
+
+        private bool IsFfmpegTimingProgressLine(string line)
+        {
+            if (string.IsNullOrEmpty(line)) return false;
+            string trimmed = line.Trim();
+            return trimmed.StartsWith("frame=", StringComparison.OrdinalIgnoreCase)
+                || trimmed.StartsWith("out_time", StringComparison.OrdinalIgnoreCase)
+                || trimmed.IndexOf("frame=", StringComparison.OrdinalIgnoreCase) >= 0
+                || trimmed.IndexOf("time=", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private bool WaitForVideoReady(Process process, ManualResetEventSlim ready, int waitMs)
@@ -1306,16 +1346,25 @@ namespace WindowBackRecorder
 
         private DateTime EstimateCaptureStartFromProgress(int frameCount, double outSeconds, int fps)
         {
+            double elapsedSeconds = EstimateCaptureElapsedSeconds(frameCount, outSeconds, fps);
+            if (elapsedSeconds >= 0)
+            {
+                return DateTime.UtcNow.AddSeconds(-elapsedSeconds);
+            }
+            return DateTime.MinValue;
+        }
+
+        private double EstimateCaptureElapsedSeconds(int frameCount, double outSeconds, int fps)
+        {
             if (outSeconds > 0.001)
             {
-                return DateTime.UtcNow.AddSeconds(-outSeconds);
+                return outSeconds;
             }
             if (frameCount > 0)
             {
-                double frameSeconds = Math.Max(0, (frameCount - 1) / (double)Math.Max(1, fps));
-                return DateTime.UtcNow.AddSeconds(-frameSeconds);
+                return Math.Max(0, (frameCount - 1) / (double)Math.Max(1, fps));
             }
-            return DateTime.MinValue;
+            return -1;
         }
 
         private int ParseFfmpegProgressFrameCount(string line)
@@ -1694,6 +1743,8 @@ namespace WindowBackRecorder
             args.Add("23");
             args.Add("-pix_fmt");
             args.Add("yuv420p");
+            args.Add("-fps_mode");
+            args.Add("vfr");
             args.Add("-c:a");
             args.Add("aac");
             args.Add("-b:a");
@@ -1713,9 +1764,6 @@ namespace WindowBackRecorder
                 videoFilters.Add("trim=start=" + FormatSeconds(segment.TrimStartSeconds));
             }
             videoFilters.Add("setpts=PTS-STARTPTS");
-            int outputFps = GetSegmentOutputFps(segment);
-            videoFilters.Add("fps=fps=" + outputFps.ToString(CultureInfo.InvariantCulture));
-            videoFilters.Add("setpts=N/(" + outputFps.ToString(CultureInfo.InvariantCulture) + "*TB)");
 
             var audioFilters = new List<string>();
             if (audioTrimSeconds > 0)
@@ -1734,12 +1782,6 @@ namespace WindowBackRecorder
             return "[0:v]" + string.Join(",", videoFilters.ToArray()) + "[v];[1:a]" + string.Join(",", audioFilters.ToArray()) + "[a]";
         }
 
-        private int GetSegmentOutputFps(RecordingSegment segment)
-        {
-            if (segment == null || segment.Fps <= 0) return 60;
-            return Math.Max(5, Math.Min(60, segment.Fps));
-        }
-
         private double GetAudioTrimSeconds(RecordingSegment segment)
         {
             double raw = GetRawAudioSeekSeconds(segment);
@@ -1754,6 +1796,11 @@ namespace WindowBackRecorder
 
         private double GetRawAudioSeekSeconds(RecordingSegment segment)
         {
+            if (segment != null && segment.AudioAlignedToTrimStart)
+            {
+                return 0;
+            }
+
             if (segment == null || segment.AudioStartedUtc == DateTime.MinValue || segment.VideoStartedUtc == DateTime.MinValue)
             {
                 return segment == null ? 0 : segment.TrimStartSeconds;
@@ -2887,6 +2934,41 @@ namespace WindowBackRecorder
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;
         public double TrimStartSeconds;
+        public bool AudioAlignedToTrimStart;
+    }
+
+    public sealed class VideoCaptureClock
+    {
+        private readonly object syncRoot = new object();
+        private bool hasValue;
+        private double seconds;
+        private DateTime updatedUtc = DateTime.MinValue;
+
+        public void Update(double elapsedSeconds, DateTime utc)
+        {
+            lock (syncRoot)
+            {
+                if (elapsedSeconds < 0) return;
+                seconds = elapsedSeconds;
+                updatedUtc = utc;
+                hasValue = true;
+            }
+        }
+
+        public bool TryEstimateSeconds(DateTime utc, out double elapsedSeconds)
+        {
+            lock (syncRoot)
+            {
+                if (!hasValue || updatedUtc == DateTime.MinValue)
+                {
+                    elapsedSeconds = 0;
+                    return false;
+                }
+
+                elapsedSeconds = seconds + Math.Max(0, (utc - updatedUtc).TotalSeconds);
+                return true;
+            }
+        }
     }
 
     public sealed class AudioSessionSnapshot

@@ -1553,8 +1553,11 @@ namespace WindowBackRecorder
                 DateTime parsedUtc;
                 if (TryParseAudioHelperTimestamp(line, out parsedClockSeconds, out parsedUtc))
                 {
-                    readyClockSeconds = parsedClockSeconds;
-                    readyUtc = parsedUtc;
+                    if (readyClockSeconds <= 0)
+                    {
+                        readyClockSeconds = parsedClockSeconds;
+                        readyUtc = parsedUtc;
+                    }
                 }
 
                 if (line.IndexOf("loopback audio capture started", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -1616,8 +1619,11 @@ namespace WindowBackRecorder
                 DateTime parsedUtc;
                 if (TryParseAudioHelperTimestamp(line, out parsedClockSeconds, out parsedUtc))
                 {
-                    readyClockSeconds = parsedClockSeconds;
-                    readyUtc = parsedUtc;
+                    if (readyClockSeconds <= 0)
+                    {
+                        readyClockSeconds = parsedClockSeconds;
+                        readyUtc = parsedUtc;
+                    }
                 }
 
                 if (line.IndexOf("process audio capture started", StringComparison.OrdinalIgnoreCase) >= 0)

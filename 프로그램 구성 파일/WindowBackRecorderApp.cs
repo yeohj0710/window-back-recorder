@@ -65,9 +65,6 @@ namespace WindowBackRecorder
         private IntRect? savedBounds;
         private bool gfxCaptureAvailable;
         private bool isStopping;
-        private bool isPausing;
-        private bool isPaused;
-        private bool pendingResumeAfterPause;
         private bool targetWindowHidden;
         private bool silentPlaybackApplied;
         private bool processAudioSupportChecked;
@@ -945,31 +942,13 @@ namespace WindowBackRecorder
 
         private void ToggleRecordingAction()
         {
-            if (isPausing)
+            if (activeRecording != null || isStopping)
             {
-                if (isPaused && activeRecording != null)
-                {
-                    pendingResumeAfterPause = true;
-                    startButton.Content = "다시 시작 준비 중";
-                    SetStatus("일시정지 정리 후 다시 시작할게요");
-                }
+                SetStatus("녹화 중입니다. 끝내려면 녹화 종료를 눌러주세요");
                 return;
             }
 
-            if (activeRecording == null)
-            {
-                StartRecording();
-                return;
-            }
-
-            if (isPaused)
-            {
-                ResumeRecording();
-            }
-            else
-            {
-                PauseRecording();
-            }
+            StartRecording();
         }
 
         private void StartRecording()
@@ -1033,10 +1012,8 @@ namespace WindowBackRecorder
                 StartRecordingSegment(recording);
                 ApplySilentPlaybackIfRecording();
 
-                isPaused = false;
-                pendingResumeAfterPause = false;
-                startButton.Content = "일시정지";
-                startButton.IsEnabled = true;
+                startButton.Content = "녹화 중";
+                startButton.IsEnabled = false;
                 stopButton.IsEnabled = true;
                 saveFolderBox.IsEnabled = false;
                 fpsSlider.IsEnabled = false;
@@ -1050,92 +1027,11 @@ namespace WindowBackRecorder
                 AppendLog("녹화를 시작하지 못했어요: " + ex.Message);
                 StopProcessesOnly();
                 activeRecording = null;
+                startButton.Content = "녹화 시작";
+                startButton.IsEnabled = true;
                 fpsSlider.IsEnabled = true;
                 windowList.IsEnabled = true;
                 SetStatus("시작 실패");
-            }
-        }
-
-        private void PauseRecording()
-        {
-            if (activeRecording == null || isStopping || isPausing) return;
-
-            var recording = activeRecording;
-            bool keepReducedMode = silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true;
-
-            isPausing = true;
-            isPaused = true;
-            pendingResumeAfterPause = false;
-            startButton.Content = "다시 시작";
-            startButton.IsEnabled = true;
-            stopButton.IsEnabled = true;
-            SetStatus("일시정지 처리 중...");
-            AppendLog("녹화를 일시정지하는 중...");
-
-            ThreadPool.QueueUserWorkItem(delegate
-            {
-                Exception stopError = null;
-                try
-                {
-                    StopCurrentSegment(recording, 1800, 1200, keepReducedMode);
-                }
-                catch (Exception ex)
-                {
-                    stopError = ex;
-                }
-
-                Dispatcher.BeginInvoke(new Action(delegate
-                {
-                    isPausing = false;
-                    if (stopError != null)
-                    {
-                        AppendLog("일시정지 처리 중 오류가 났어요: " + stopError.Message);
-                    }
-
-                    if (activeRecording != recording || isStopping)
-                    {
-                        pendingResumeAfterPause = false;
-                        return;
-                    }
-
-                    if (pendingResumeAfterPause)
-                    {
-                        pendingResumeAfterPause = false;
-                        ResumeRecording();
-                        return;
-                    }
-
-                    isPaused = true;
-                    startButton.Content = "다시 시작";
-                    startButton.IsEnabled = true;
-                    stopButton.IsEnabled = true;
-                    SetStatus("일시정지");
-                    AppendLog("녹화를 일시정지했어요");
-                }));
-            });
-        }
-
-        private void ResumeRecording()
-        {
-            if (activeRecording == null || isStopping || isPausing) return;
-
-            try
-            {
-                StartRecordingSegment(activeRecording);
-                lastSilentPlaybackAttemptUtc = DateTime.MinValue;
-                ApplySilentPlaybackIfRecording();
-                isPaused = false;
-                pendingResumeAfterPause = false;
-                startButton.Content = "일시정지";
-                startButton.IsEnabled = true;
-                stopButton.IsEnabled = true;
-                SetStatus("녹화 중");
-                AppendLog("녹화를 다시 시작했어요");
-            }
-            catch (Exception ex)
-            {
-                AppendLog("녹화를 다시 시작하지 못했어요: " + ex.Message);
-                SetStatus("다시 시작 실패");
             }
         }
 
@@ -1667,9 +1563,6 @@ namespace WindowBackRecorder
             startButton.IsEnabled = false;
             stopButton.IsEnabled = false;
             stopButton.Content = "처리 중";
-            isPausing = false;
-            isPaused = false;
-            pendingResumeAfterPause = false;
             startButton.Content = "녹화 시작";
             saveFolderBox.IsEnabled = true;
             if (targetWindowHidden) RestoreTargetWindowFromHidden();
@@ -2045,12 +1938,6 @@ namespace WindowBackRecorder
                 terms.Add("gte(t\\," + FormatSeconds(segment.TrimStartSeconds) + ")");
             }
 
-            foreach (PauseRange range in segment.PauseRanges)
-            {
-                if (range.EndSeconds <= range.StartSeconds + 0.05) continue;
-                terms.Add("not(between(t\\," + FormatSeconds(range.StartSeconds) + "\\," + FormatSeconds(range.EndSeconds) + "))");
-            }
-
             return terms.Count == 0 ? "1" : string.Join("*", terms.ToArray());
         }
 
@@ -2062,22 +1949,7 @@ namespace WindowBackRecorder
             var extraPaths = new List<string>();
             foreach (RecordingSegment segment in recording.Segments)
             {
-                if (segment.PauseRanges.Count > 0)
-                {
-                    string filteredPath = Path.ChangeExtension(segment.VideoPath, ".filtered.mp4");
-                    int filterCode = RunFilterVideoTimeline(segment.VideoPath, filteredPath, segment, out err);
-                    if (filterCode != 0)
-                    {
-                        QueueUiLog("일시정지 구간 정리에 실패해서 기본 영상으로 저장합니다.");
-                        videoSegments.Add(segment.VideoPath);
-                    }
-                    else
-                    {
-                        videoSegments.Add(filteredPath);
-                        extraPaths.Add(filteredPath);
-                    }
-                }
-                else if (segment.TrimStartSeconds > 0)
+                if (segment.TrimStartSeconds > 0)
                 {
                     string trimmedPath = Path.ChangeExtension(segment.VideoPath, ".trim.mp4");
                     int trimCode = RunTrimVideo(segment.VideoPath, trimmedPath, segment.TrimStartSeconds, out err);
@@ -2447,33 +2319,6 @@ namespace WindowBackRecorder
             return Math.Max(0, (DateTime.UtcNow - recording.SegmentStartedUtc).TotalSeconds);
         }
 
-        private void BeginPauseRange(RecordingState recording)
-        {
-            if (recording == null || recording.CurrentSegment == null) return;
-            RecordingSegment segment = recording.CurrentSegment;
-            if (segment.ActivePauseStartSeconds.HasValue) return;
-            segment.ActivePauseStartSeconds = GetSegmentElapsedSeconds(recording);
-        }
-
-        private void EndPauseRange(RecordingState recording)
-        {
-            if (recording == null || recording.CurrentSegment == null) return;
-            RecordingSegment segment = recording.CurrentSegment;
-            if (!segment.ActivePauseStartSeconds.HasValue) return;
-
-            double start = segment.ActivePauseStartSeconds.Value;
-            double end = GetSegmentElapsedSeconds(recording);
-            if (end > start + 0.05)
-            {
-                segment.PauseRanges.Add(new PauseRange
-                {
-                    StartSeconds = start,
-                    EndSeconds = end
-                });
-            }
-            segment.ActivePauseStartSeconds = null;
-        }
-
         private void BeginAudioBoostRange(RecordingState recording)
         {
             if (recording == null || recording.CurrentSegment == null) return;
@@ -2709,15 +2554,6 @@ namespace WindowBackRecorder
             {
                 lastWindowScanUtc = DateTime.UtcNow;
                 RefreshWindows(true);
-            }
-
-            if (isPausing)
-            {
-                busyTick = (busyTick + 1) % 4;
-                string dots = new string('.', busyTick);
-                SetStatus("일시정지 중" + dots);
-                startButton.Content = "일시정지 중" + dots;
-                return;
             }
 
             if (activeRecording != null && silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true)
@@ -3392,16 +3228,8 @@ namespace WindowBackRecorder
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;
         public double TrimStartSeconds;
-        public double? ActivePauseStartSeconds;
         public double? ActiveAudioBoostStartSeconds;
-        public readonly List<PauseRange> PauseRanges = new List<PauseRange>();
         public readonly List<AudioBoostRange> AudioBoostRanges = new List<AudioBoostRange>();
-    }
-
-    public sealed class PauseRange
-    {
-        public double StartSeconds;
-        public double EndSeconds;
     }
 
     public sealed class AudioBoostRange

@@ -91,7 +91,7 @@ namespace WindowBackRecorder
         private const double ReducedPlaybackVolume = 0.04;
         private const double ReducedPlaybackGain = 25.0;
         private const double AudioBoostFadeSeconds = 0.45;
-        private const double DefaultAudioSyncDelaySeconds = 0.45;
+        private const double DefaultAudioSyncDelaySeconds = 0.0;
         private const double MinAudioSyncDelaySeconds = -1.0;
         private const double MaxAudioSyncDelaySeconds = 1.0;
         private const double StartWarmupTrimSeconds = 3.0;
@@ -1345,7 +1345,7 @@ namespace WindowBackRecorder
             DateTime readyUtc = DateTime.MinValue;
             var process = StartProcess(GetFfmpegPath(), args, "[화면] ", delegate(string line)
             {
-                DateTime estimatedStart = EstimateFfmpegCaptureStartUtc(line);
+                DateTime estimatedStart = EstimateFfmpegCaptureStartUtc(line, fps);
                 if (estimatedStart != DateTime.MinValue && readyUtc == DateTime.MinValue)
                 {
                     readyUtc = estimatedStart;
@@ -1379,19 +1379,33 @@ namespace WindowBackRecorder
             return ready.IsSet;
         }
 
-        private DateTime EstimateFfmpegCaptureStartUtc(string line)
+        private DateTime EstimateFfmpegCaptureStartUtc(string line, int fps)
         {
             if (string.IsNullOrEmpty(line) || line.IndexOf("frame=", StringComparison.OrdinalIgnoreCase) < 0)
             {
                 return DateTime.MinValue;
             }
 
+            int frameCount = ParseFfmpegProgressFrameCount(line);
             double seconds;
             if (TryParseFfmpegProgressSeconds(line, out seconds))
             {
+                if (seconds <= 0 && frameCount <= 0) return DateTime.MinValue;
                 return DateTime.UtcNow.AddSeconds(-seconds);
             }
-            return DateTime.UtcNow;
+
+            if (frameCount <= 0) return DateTime.MinValue;
+            double frameSeconds = Math.Max(0, (frameCount - 1) / (double)Math.Max(1, fps));
+            return DateTime.UtcNow.AddSeconds(-frameSeconds);
+        }
+
+        private int ParseFfmpegProgressFrameCount(string line)
+        {
+            Match match = Regex.Match(line, @"frame=\s*(\d+)", RegexOptions.IgnoreCase);
+            if (!match.Success) return -1;
+            int frameCount;
+            if (!int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out frameCount)) return -1;
+            return frameCount;
         }
 
         private bool TryParseFfmpegProgressSeconds(string line, out double seconds)
@@ -2672,6 +2686,11 @@ namespace WindowBackRecorder
                     var dict = json.Deserialize<Dictionary<string, object>>(File.ReadAllText(settingsPath, Encoding.UTF8));
                     object value;
                     bool hasCurrentSettings = dict.ContainsKey("SettingsVersion");
+                    int settingsVersion = 0;
+                    if (dict.TryGetValue("SettingsVersion", out value) && value != null)
+                    {
+                        int.TryParse(Convert.ToString(value, CultureInfo.InvariantCulture), NumberStyles.Integer, CultureInfo.InvariantCulture, out settingsVersion);
+                    }
                     if (dict.TryGetValue("RecordingsDir", out value) && value != null)
                     {
                         string savedPath = value.ToString();
@@ -2687,6 +2706,10 @@ namespace WindowBackRecorder
                         {
                             syncDelayMs = Math.Max(MinAudioSyncDelaySeconds * 1000.0, Math.Min(MaxAudioSyncDelaySeconds * 1000.0, parsed));
                         }
+                    }
+                    if (settingsVersion < 3 && Math.Abs(syncDelayMs - 450.0) < 0.5)
+                    {
+                        syncDelayMs = DefaultAudioSyncDelaySeconds * 1000.0;
                     }
                 }
             }
@@ -2738,7 +2761,7 @@ namespace WindowBackRecorder
             try
             {
                 var dict = new Dictionary<string, object>();
-                dict["SettingsVersion"] = 2;
+                dict["SettingsVersion"] = 3;
                 dict["RecordingsDir"] = saveDir;
                 dict["AudioSyncDelayMs"] = (int)Math.Round(GetAudioSyncDelaySeconds() * 1000.0);
                 File.WriteAllText(settingsPath, json.Serialize(dict), Encoding.UTF8);

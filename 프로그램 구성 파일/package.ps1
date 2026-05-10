@@ -85,11 +85,17 @@ if (Test-Path $processHelperBuild) {
     Remove-Item -LiteralPath $processHelperBuild -Recurse -Force
 }
 
+$processAudioDll = python -c "import pathlib, process_audio_capture; print(pathlib.Path(process_audio_capture.__file__).parent / 'ProcessAudioCapture.dll')"
+if (-not (Test-Path $processAudioDll)) {
+    throw "ProcessAudioCapture.dll was not found."
+}
+
 python -m PyInstaller `
     --noconfirm `
     --clean `
     --onefile `
     --name process_audio_recorder `
+    --add-binary "$processAudioDll;process_audio_capture" `
     --distpath "$processHelperDist" `
     --workpath "$processHelperWork" `
     --specpath "$processHelperBuild" `

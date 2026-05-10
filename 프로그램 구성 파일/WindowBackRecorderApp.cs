@@ -83,7 +83,6 @@ namespace WindowBackRecorder
         private const int HiddenWindowVisibleStripPixels = 6;
         private const int AudioReadyWaitMilliseconds = 2500;
         private const int AudioSampleReadyWaitMilliseconds = 1200;
-        private const double AudioRenderSyncDelaySeconds = 0.45;
         private const int VideoReadyWaitMilliseconds = 3500;
 
         public MainWindow()
@@ -266,7 +265,10 @@ namespace WindowBackRecorder
             TryApplyDarkScrollBar(controlScroll);
             rightPanel.Child = controlScroll;
 
-            var controls = new StackPanel();
+            var controls = new StackPanel
+            {
+                Margin = new Thickness(0, 0, 16, 0)
+            };
             controlScroll.Content = controls;
 
             controls.Children.Add(SectionLabel("녹화 설정"));
@@ -465,8 +467,8 @@ namespace WindowBackRecorder
 <Style xmlns=""http://schemas.microsoft.com/winfx/2006/xaml/presentation""
        xmlns:x=""http://schemas.microsoft.com/winfx/2006/xaml""
        TargetType=""{x:Type ScrollBar}"">
-  <Setter Property=""Width"" Value=""8""/>
-  <Setter Property=""MinWidth"" Value=""8""/>
+  <Setter Property=""Width"" Value=""12""/>
+  <Setter Property=""MinWidth"" Value=""12""/>
   <Setter Property=""Background"" Value=""#edf1f6""/>
   <Setter Property=""Template"">
     <Setter.Value>
@@ -480,7 +482,7 @@ namespace WindowBackRecorder
               <Thumb MinHeight=""36"">
                 <Thumb.Template>
                   <ControlTemplate TargetType=""{x:Type Thumb}"">
-                    <Border Width=""6"" Margin=""1"" CornerRadius=""3"" Background=""#94a3b8""/>
+                    <Border Width=""6"" Margin=""3,1,1,1"" CornerRadius=""3"" Background=""#94a3b8""/>
                   </ControlTemplate>
                 </Thumb.Template>
               </Thumb>
@@ -1099,7 +1101,6 @@ namespace WindowBackRecorder
                 AudioGain = 1.0,
                 Fps = recording.Fps,
                 TrimStartSeconds = videoTrimStartSeconds,
-                AudioRenderDelaySeconds = audioStarted ? AudioRenderSyncDelaySeconds : 0,
                 VideoStartedUtc = videoStartedUtc,
                 AudioStartedUtc = audioStarted ? audioStartedUtc : DateTime.MinValue,
                 AudioAlignedToTrimStart = audioAlignedToTrimStart
@@ -1113,9 +1114,7 @@ namespace WindowBackRecorder
             {
                 AppendLog("싱크 기준: 소리 시작 시점부터 영상 저장, 앞부분 "
                     + (videoTrimStartSeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
-                    + "ms 제외, 소리 "
-                    + (AudioRenderSyncDelaySeconds * 1000.0).ToString("0", CultureInfo.InvariantCulture)
-                    + "ms 보정");
+                    + "ms 제외");
             }
         }
 
@@ -1851,7 +1850,7 @@ namespace WindowBackRecorder
         {
             if (segment != null && segment.AudioAlignedToTrimStart)
             {
-                return -segment.AudioRenderDelaySeconds;
+                return 0;
             }
 
             if (segment == null || segment.AudioStartedUtc == DateTime.MinValue || segment.VideoStartedUtc == DateTime.MinValue)
@@ -1860,7 +1859,7 @@ namespace WindowBackRecorder
             }
 
             double audioStartedBeforeVideo = (segment.VideoStartedUtc - segment.AudioStartedUtc).TotalSeconds;
-            return segment.TrimStartSeconds + audioStartedBeforeVideo - segment.AudioRenderDelaySeconds;
+            return segment.TrimStartSeconds + audioStartedBeforeVideo;
         }
 
         private void FinalizeVideoOnlyRecording(RecordingState recording)
@@ -2987,7 +2986,6 @@ namespace WindowBackRecorder
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;
         public double TrimStartSeconds;
-        public double AudioRenderDelaySeconds;
         public bool AudioAlignedToTrimStart;
     }
 

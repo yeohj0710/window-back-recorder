@@ -13,6 +13,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -2125,6 +2126,21 @@ namespace WindowBackRecorder
 
         private void BrowseFolder()
         {
+            string selectedPath;
+            try
+            {
+                if (ModernFolderPicker.TryPickFolder(this, saveFolderBox.Text, out selectedPath))
+                {
+                    saveFolderBox.Text = selectedPath;
+                    SaveSettings(selectedPath);
+                }
+                return;
+            }
+            catch (Exception ex)
+            {
+                AppendLog("새 폴더 선택 창을 열지 못해서 기본 창으로 열어요: " + ex.Message);
+            }
+
             using (var dialog = new WinForms.FolderBrowserDialog())
             {
                 dialog.Description = "녹화 파일을 저장할 폴더를 선택하세요";
@@ -2674,6 +2690,141 @@ namespace WindowBackRecorder
             if (!Regex.IsMatch(arg, "[\\s\"]")) return arg;
             return "\"" + arg.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
+    }
+
+    public static class ModernFolderPicker
+    {
+        private const int Cancelled = unchecked((int)0x800704C7);
+
+        public static bool TryPickFolder(Window owner, string initialPath, out string selectedPath)
+        {
+            selectedPath = null;
+            IFileOpenDialog dialog = null;
+            IShellItem initialItem = null;
+            IShellItem resultItem = null;
+            IntPtr pathPointer = IntPtr.Zero;
+
+            try
+            {
+                dialog = (IFileOpenDialog)new FileOpenDialogCom();
+
+                uint options;
+                Marshal.ThrowExceptionForHR(dialog.GetOptions(out options));
+                options |= (uint)(
+                    FileOpenOptions.PickFolders |
+                    FileOpenOptions.ForceFileSystem |
+                    FileOpenOptions.PathMustExist |
+                    FileOpenOptions.NoChangeDir);
+                Marshal.ThrowExceptionForHR(dialog.SetOptions(options));
+                Marshal.ThrowExceptionForHR(dialog.SetTitle("녹화 파일을 저장할 폴더를 선택하세요"));
+                Marshal.ThrowExceptionForHR(dialog.SetOkButtonLabel("이 폴더 선택"));
+
+                if (!string.IsNullOrWhiteSpace(initialPath) && Directory.Exists(initialPath))
+                {
+                    Guid shellItemGuid = typeof(IShellItem).GUID;
+                    if (SHCreateItemFromParsingName(initialPath, IntPtr.Zero, ref shellItemGuid, out initialItem) == 0 && initialItem != null)
+                    {
+                        dialog.SetFolder(initialItem);
+                    }
+                }
+
+                IntPtr ownerHandle = owner == null ? IntPtr.Zero : new WindowInteropHelper(owner).Handle;
+                int showResult = dialog.Show(ownerHandle);
+                if (showResult == Cancelled) return false;
+                Marshal.ThrowExceptionForHR(showResult);
+
+                Marshal.ThrowExceptionForHR(dialog.GetResult(out resultItem));
+                Marshal.ThrowExceptionForHR(resultItem.GetDisplayName(ShellItemDisplayName.FileSystemPath, out pathPointer));
+                selectedPath = Marshal.PtrToStringUni(pathPointer);
+                return !string.IsNullOrWhiteSpace(selectedPath);
+            }
+            finally
+            {
+                if (pathPointer != IntPtr.Zero) Marshal.FreeCoTaskMem(pathPointer);
+                if (resultItem != null) Marshal.ReleaseComObject(resultItem);
+                if (initialItem != null) Marshal.ReleaseComObject(initialItem);
+                if (dialog != null) Marshal.ReleaseComObject(dialog);
+            }
+        }
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
+        private static extern int SHCreateItemFromParsingName(
+            [MarshalAs(UnmanagedType.LPWStr)] string path,
+            IntPtr bindContext,
+            ref Guid riid,
+            out IShellItem shellItem);
+    }
+
+    [Flags]
+    public enum FileOpenOptions : uint
+    {
+        PickFolders = 0x00000020,
+        ForceFileSystem = 0x00000040,
+        NoChangeDir = 0x00000008,
+        PathMustExist = 0x00000800
+    }
+
+    public enum ShellItemDisplayName : uint
+    {
+        FileSystemPath = 0x80058000
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct DialogFilterSpec
+    {
+        public string Name;
+        public string Spec;
+    }
+
+    [ComImport]
+    [Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
+    public class FileOpenDialogCom
+    {
+    }
+
+    [ComImport]
+    [Guid("D57C7288-D4AD-4768-BE02-9D969532D960")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IFileOpenDialog
+    {
+        [PreserveSig] int Show(IntPtr parent);
+        [PreserveSig] int SetFileTypes(uint fileTypesCount, [MarshalAs(UnmanagedType.LPArray)] DialogFilterSpec[] fileTypes);
+        [PreserveSig] int SetFileTypeIndex(uint fileTypeIndex);
+        [PreserveSig] int GetFileTypeIndex(out uint fileTypeIndex);
+        [PreserveSig] int Advise(IntPtr events, out uint cookie);
+        [PreserveSig] int Unadvise(uint cookie);
+        [PreserveSig] int SetOptions(uint options);
+        [PreserveSig] int GetOptions(out uint options);
+        [PreserveSig] int SetDefaultFolder(IShellItem shellItem);
+        [PreserveSig] int SetFolder(IShellItem shellItem);
+        [PreserveSig] int GetFolder(out IShellItem shellItem);
+        [PreserveSig] int GetCurrentSelection(out IShellItem shellItem);
+        [PreserveSig] int SetFileName([MarshalAs(UnmanagedType.LPWStr)] string fileName);
+        [PreserveSig] int GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string fileName);
+        [PreserveSig] int SetTitle([MarshalAs(UnmanagedType.LPWStr)] string title);
+        [PreserveSig] int SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string text);
+        [PreserveSig] int SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string label);
+        [PreserveSig] int GetResult(out IShellItem shellItem);
+        [PreserveSig] int AddPlace(IShellItem shellItem, uint fileDialogAddPlace);
+        [PreserveSig] int SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string defaultExtension);
+        [PreserveSig] int Close(int result);
+        [PreserveSig] int SetClientGuid(ref Guid guid);
+        [PreserveSig] int ClearClientData();
+        [PreserveSig] int SetFilter(IntPtr filter);
+        [PreserveSig] int GetResults(out IntPtr shellItemArray);
+        [PreserveSig] int GetSelectedItems(out IntPtr shellItemArray);
+    }
+
+    [ComImport]
+    [Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IShellItem
+    {
+        [PreserveSig] int BindToHandler(IntPtr bindContext, ref Guid handlerId, ref Guid interfaceId, out IntPtr interfacePointer);
+        [PreserveSig] int GetParent(out IShellItem shellItem);
+        [PreserveSig] int GetDisplayName(ShellItemDisplayName displayName, out IntPtr name);
+        [PreserveSig] int GetAttributes(uint attributeMask, out uint attributes);
+        [PreserveSig] int Compare(IShellItem shellItem, uint hint, out int order);
     }
 
     public sealed class AudioSourceInfo

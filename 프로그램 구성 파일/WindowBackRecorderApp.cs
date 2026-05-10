@@ -54,7 +54,7 @@ namespace WindowBackRecorder
         private Button startButton;
         private ToggleButton listenToggle;
         private ToggleButton windowVisibilityToggle;
-        private ToggleButton silentPlaybackToggle;
+        private ToggleButton drawCursorToggle;
         private Slider fpsSlider;
 
         private Process ffmpegProcess;
@@ -65,7 +65,6 @@ namespace WindowBackRecorder
         private bool gfxCaptureAvailable;
         private bool isStopping;
         private bool targetWindowHidden;
-        private bool silentPlaybackApplied;
         private bool processAudioSupportChecked;
         private bool processAudioSupported;
         private readonly List<AudioSessionSnapshot> audioSessionSnapshots = new List<AudioSessionSnapshot>();
@@ -73,7 +72,6 @@ namespace WindowBackRecorder
         private int logLineCount;
         private DateTime lastFfmpegProgressLogUtc = DateTime.MinValue;
         private DateTime lastWindowScanUtc = DateTime.MinValue;
-        private DateTime lastSilentPlaybackAttemptUtc = DateTime.MinValue;
         private string lastWindowSnapshot = "";
 
         private const string SupportFolderName = "프로그램 구성 파일";
@@ -82,11 +80,6 @@ namespace WindowBackRecorder
         private const string DefaultRecordingsFolderName = "녹화 완료된 동영상";
         private const string OldDefaultRecordingsFolderName = "녹화 완료 영상";
         private const string TempFolderName = "recording-temp";
-        private const double ReducedPlaybackVolume = 0.04;
-        private const double ReducedPlaybackGain = 25.0;
-        private const double AudioBoostFadeSeconds = 0.45;
-        private const double ProcessAudioOutputDelaySeconds = 0.27;
-        private const double SystemLoopbackAudioOutputDelaySeconds = 0.23;
         private const double StartWarmupTrimSeconds = 3.0;
         private const int AudioReadyWaitMilliseconds = 2500;
         private const int VideoReadyWaitMilliseconds = 3500;
@@ -315,28 +308,12 @@ namespace WindowBackRecorder
             windowVisibilityToggle.Unchecked += delegate { RestoreTargetWindowFromHidden(); };
             controls.Children.Add(windowVisibilityToggle);
 
-            controls.Children.Add(SectionLabel("소리"));
-            audioStatusText = MetaText("선택한 앱 소리만 자동 녹음");
-            audioStatusText.Margin = new Thickness(0, 4, 0, 6);
-            audioStatusText.Foreground = Brush("#1d4ed8");
-            controls.Children.Add(audioStatusText);
+            audioStatusText = MetaText("");
+            audioStatusText.Visibility = Visibility.Collapsed;
 
-            var audioWarningText = MetaText("소리를 완전히 끄면 녹음도 안 될 수 있어요. 대신 아래 옵션으로 대상 앱 소리만 줄입니다.");
-            audioWarningText.Margin = new Thickness(0, 0, 0, 14);
-            audioWarningText.Foreground = Brush("#b45309");
-            audioWarningText.TextWrapping = TextWrapping.Wrap;
-            controls.Children.Add(audioWarningText);
-
-            silentPlaybackToggle = CreateSwitchToggle("소리 줄이고 녹화하기", false);
-            silentPlaybackToggle.Checked += delegate
-            {
-                ChangeReducedAudioMode(true);
-            };
-            silentPlaybackToggle.Unchecked += delegate
-            {
-                ChangeReducedAudioMode(false);
-            };
-            controls.Children.Add(silentPlaybackToggle);
+            drawCursorToggle = CreateSwitchToggle("마우스 커서도 녹화하기", false);
+            drawCursorToggle.Margin = new Thickness(0, 4, 0, 18);
+            controls.Children.Add(drawCursorToggle);
 
             controls.Children.Add(SectionLabel("화면 부드러움"));
             var fpsRow = new Grid { Margin = new Thickness(0, 4, 0, 16) };
@@ -355,11 +332,10 @@ namespace WindowBackRecorder
             listenToggle = CreateToggle("내 스피커로 듣기", false);
             listenToggle.Visibility = Visibility.Collapsed;
 
-            controls.Children.Add(SectionLabel("상태"));
             engineText = MetaText("화면 캡처: 확인 중");
             outputText = MetaText("저장 파일: -");
-            controls.Children.Add(engineText);
-            controls.Children.Add(outputText);
+            engineText.Visibility = Visibility.Collapsed;
+            outputText.Visibility = Visibility.Collapsed;
 
             var footer = new Border
             {
@@ -1018,16 +994,13 @@ namespace WindowBackRecorder
                     TempDirectory = PrepareRecordingTempDirectory(),
                     Target = selectedWindow,
                     Fps = (int)fpsSlider.Value,
-                    DrawCursor = true,
+                    DrawCursor = drawCursorToggle != null && drawCursorToggle.IsChecked == true,
                     AudioMode = audioMode,
-                    BoostAudio = false,
-                    AudioGain = 1.0,
-                    CurrentAudioGain = 1.0
+                    AudioGain = 1.0
                 };
 
                 activeRecording = recording;
                 StartRecordingSegment(recording);
-                ApplySilentPlaybackIfRecording();
 
                 SetRecordButtonRecording();
                 saveFolderBox.IsEnabled = false;
@@ -1113,9 +1086,7 @@ namespace WindowBackRecorder
                 VideoPath = videoPath,
                 AudioPath = audioStarted ? audioPath : null,
                 HasLoopbackAudio = audioStarted,
-                BoostAudio = recording.CurrentAudioGain > 1.01,
-                AudioGain = recording.CurrentAudioGain,
-                AudioOutputDelaySeconds = GetAudioOutputDelaySeconds(recording.AudioMode),
+                AudioGain = 1.0,
                 Fps = recording.Fps,
                 TrimStartSeconds = isFirstSegment ? StartWarmupTrimSeconds : 0,
                 VideoStartedUtc = videoStartedUtc,
@@ -1133,19 +1104,7 @@ namespace WindowBackRecorder
                 {
                     AppendLog("싱크 보정: 소리 시작 차이 " + syncMs.ToString("0", CultureInfo.InvariantCulture) + "ms");
                 }
-                double latencyMs = segment.AudioOutputDelaySeconds * 1000.0;
-                if (latencyMs > 0)
-                {
-                    AppendLog("자동 싱크 보정: 소리를 " + latencyMs.ToString("0", CultureInfo.InvariantCulture) + "ms 뒤로 맞춤");
-                }
             }
-        }
-
-        private double GetAudioOutputDelaySeconds(AudioCaptureMode mode)
-        {
-            if (mode == AudioCaptureMode.Process) return ProcessAudioOutputDelaySeconds;
-            if (mode == AudioCaptureMode.SystemLoopback) return SystemLoopbackAudioOutputDelaySeconds;
-            return 0;
         }
 
         private void StopCurrentSegment()
@@ -1155,7 +1114,6 @@ namespace WindowBackRecorder
 
         private void StopCurrentSegment(RecordingState recording, int videoWaitMs, int audioWaitMs, bool keepReducedMode)
         {
-            EndAudioBoostRange(recording, keepReducedMode);
             var videoProcess = ffmpegProcess;
             var soundProcess = audioProcess;
             ffmpegProcess = null;
@@ -1601,7 +1559,6 @@ namespace WindowBackRecorder
                             SetRecordButtonIdle();
                             saveFolderBox.IsEnabled = true;
                             fpsSlider.IsEnabled = true;
-                            silentPlaybackToggle.IsEnabled = true;
                             windowList.IsEnabled = true;
                             SetStatus("준비됨");
                         }));
@@ -1687,12 +1644,7 @@ namespace WindowBackRecorder
             foreach (RecordingSegment segment in recording.Segments)
             {
                 string muxedPath = Path.ChangeExtension(segment.VideoPath, ".mux.mp4");
-                int code = RunMux(segment, muxedPath, true, out err);
-                if (code != 0 && segment.AudioBoostRanges.Count > 0)
-                {
-                    QueueUiLog("소리 보정 처리에 실패해서 기본 방식으로 다시 저장합니다.");
-                    code = RunMux(segment, muxedPath, false, out err);
-                }
+                int code = RunMux(segment, muxedPath, out err);
                 if (code != 0)
                 {
                     QueueUiLog("파일을 합치지 못했어요: " + err);
@@ -1716,7 +1668,7 @@ namespace WindowBackRecorder
             }
         }
 
-        private int RunMux(RecordingSegment segment, string outputPath, bool applyAudioFilters, out string err)
+        private int RunMux(RecordingSegment segment, string outputPath, out string err)
         {
             var args = new List<string>();
             args.Add("-hide_banner");
@@ -1728,7 +1680,7 @@ namespace WindowBackRecorder
             args.Add("-i");
             args.Add(segment.AudioPath);
             args.Add("-filter_complex");
-            args.Add(BuildMuxFilterComplex(segment, applyAudioFilters, audioTrimSeconds, audioDelaySeconds));
+            args.Add(BuildMuxFilterComplex(segment, audioTrimSeconds, audioDelaySeconds));
             args.Add("-map");
             args.Add("[v]");
             args.Add("-map");
@@ -1752,7 +1704,7 @@ namespace WindowBackRecorder
             return RunFfmpeg(args, out err);
         }
 
-        private string BuildMuxFilterComplex(RecordingSegment segment, bool applyAudioFilters, double audioTrimSeconds, double audioDelaySeconds)
+        private string BuildMuxFilterComplex(RecordingSegment segment, double audioTrimSeconds, double audioDelaySeconds)
         {
             var videoFilters = new List<string>();
             if (segment.TrimStartSeconds > 0)
@@ -1770,11 +1722,6 @@ namespace WindowBackRecorder
                 audioFilters.Add("atrim=start=" + FormatSeconds(audioTrimSeconds));
             }
             audioFilters.Add("asetpts=PTS-STARTPTS");
-            audioFilters.AddRange(BuildAudioVolumeFilters(segment, applyAudioFilters, audioTrimSeconds));
-            if (audioFilters.Count > 1 && audioFilters[audioFilters.Count - 1] != "asetpts=PTS-STARTPTS")
-            {
-                audioFilters.Add("alimiter=limit=0.98");
-            }
             if (audioDelaySeconds > 0.001)
             {
                 int delayMs = Math.Max(1, (int)Math.Round(audioDelaySeconds * 1000.0));
@@ -1792,48 +1739,20 @@ namespace WindowBackRecorder
             return Math.Max(5, Math.Min(60, segment.Fps));
         }
 
-        private string BuildAudioFilter(RecordingSegment segment, bool applyAudioFilters, double audioDelaySeconds)
-        {
-            var filters = BuildAudioVolumeFilters(segment, applyAudioFilters, segment.TrimStartSeconds);
-            if (audioDelaySeconds > 0.001)
-            {
-                int delayMs = Math.Max(1, (int)Math.Round(audioDelaySeconds * 1000.0));
-                filters.Insert(0, "adelay=" + delayMs.ToString(CultureInfo.InvariantCulture) + ":all=1");
-            }
-            if (filters.Count > 0)
-            {
-                filters.Add("alimiter=limit=0.98");
-            }
-            filters.Add("apad");
-            return string.Join(",", filters.ToArray());
-        }
-
         private double GetAudioTrimSeconds(RecordingSegment segment)
         {
-            double raw = GetAdjustedAudioSeekSeconds(segment);
+            double raw = GetRawAudioSeekSeconds(segment);
             return raw > 0 ? raw : 0;
         }
 
         private double GetAudioDelaySeconds(RecordingSegment segment)
         {
-            double raw = GetAdjustedAudioSeekSeconds(segment);
+            double raw = GetRawAudioSeekSeconds(segment);
             return raw < 0 ? -raw : 0;
-        }
-
-        private double GetAdjustedAudioSeekSeconds(RecordingSegment segment)
-        {
-            if (segment == null) return 0;
-            return GetRawAudioSeekSeconds(segment) - segment.AudioOutputDelaySeconds;
         }
 
         private double GetRawAudioSeekSeconds(RecordingSegment segment)
         {
-            double durationBasedSeek;
-            if (TryGetDurationBasedAudioSeekSeconds(segment, out durationBasedSeek))
-            {
-                return durationBasedSeek;
-            }
-
             if (segment == null || segment.AudioStartedUtc == DateTime.MinValue || segment.VideoStartedUtc == DateTime.MinValue)
             {
                 return segment == null ? 0 : segment.TrimStartSeconds;
@@ -1841,107 +1760,6 @@ namespace WindowBackRecorder
 
             double audioStartedBeforeVideo = (segment.VideoStartedUtc - segment.AudioStartedUtc).TotalSeconds;
             return segment.TrimStartSeconds + audioStartedBeforeVideo;
-        }
-
-        private bool TryGetDurationBasedAudioSeekSeconds(RecordingSegment segment, out double seekSeconds)
-        {
-            seekSeconds = 0;
-            if (segment == null || string.IsNullOrEmpty(segment.VideoPath) || string.IsNullOrEmpty(segment.AudioPath)) return false;
-            if (!File.Exists(segment.VideoPath) || !File.Exists(segment.AudioPath)) return false;
-
-            double videoDuration;
-            double audioDuration;
-            if (!TryGetMediaDurationSeconds(segment.VideoPath, out videoDuration)) return false;
-            if (!TryGetMediaDurationSeconds(segment.AudioPath, out audioDuration)) return false;
-            if (videoDuration <= 0.1 || audioDuration <= 0.1) return false;
-
-            double rawSeek = segment.TrimStartSeconds + (audioDuration - videoDuration);
-            if (Math.Abs(rawSeek) > 10) return false;
-
-            seekSeconds = rawSeek;
-            return true;
-        }
-
-        private bool TryGetMediaDurationSeconds(string path, out double durationSeconds)
-        {
-            durationSeconds = 0;
-            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
-
-            var args = new List<string>();
-            args.Add("-hide_banner");
-            args.Add("-i");
-            args.Add(path);
-
-            string err;
-            RunFfmpeg(args, out err);
-            Match match = Regex.Match(err ?? "", @"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", RegexOptions.IgnoreCase);
-            if (!match.Success) return false;
-
-            int hours;
-            int minutes;
-            double seconds;
-            if (!int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out hours)) return false;
-            if (!int.TryParse(match.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out minutes)) return false;
-            if (!double.TryParse(match.Groups[3].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out seconds)) return false;
-
-            durationSeconds = hours * 3600.0 + minutes * 60.0 + seconds;
-            return durationSeconds > 0;
-        }
-
-        private List<string> BuildAudioVolumeFilters(RecordingSegment segment, bool applyAudioFilters, double offsetSeconds)
-        {
-            var filters = new List<string>();
-            if (!applyAudioFilters || segment.AudioBoostRanges.Count == 0) return filters;
-
-            foreach (AudioBoostRange range in segment.AudioBoostRanges)
-            {
-                double start = Math.Max(0, range.StartSeconds - offsetSeconds);
-                double end = Math.Max(0, range.EndSeconds - offsetSeconds);
-                if (end <= start + 0.05) continue;
-
-                double fade = Math.Min(AudioBoostFadeSeconds, Math.Max(0.05, (end - start) / 2.0));
-                double fadeOutStart = Math.Max(start, end - fade);
-                string gain = ReducedPlaybackGain.ToString("0.###", CultureInfo.InvariantCulture);
-                string startText = FormatSeconds(start);
-                string endText = FormatSeconds(end);
-                string fadeText = FormatSeconds(fade);
-                string fadeOutStartText = FormatSeconds(fadeOutStart);
-
-                string expression =
-                    "if(lt(t\\," + startText + ")\\,1\\," +
-                    "if(lt(t\\," + (start + fade).ToString("0.###", CultureInfo.InvariantCulture) + ")\\,1+(" + gain + "-1)*(t-" + startText + ")/" + fadeText + "\\," +
-                    "if(lt(t\\," + fadeOutStartText + ")\\," + gain + "\\," +
-                    "if(lt(t\\," + endText + ")\\,1+(" + gain + "-1)*(" + endText + "-t)/" + fadeText + "\\,1))))";
-
-                filters.Add("volume='" + expression + "':eval=frame");
-            }
-
-            return filters;
-        }
-
-        private string BuildAudioVideoTimelineFilter(RecordingSegment segment, bool applyAudioFilters)
-        {
-            string keepExpression = BuildKeepExpression(segment);
-            string videoFilter = "[0:v]select='" + keepExpression + "',setpts=N/FRAME_RATE/TB[v]";
-
-            var audioFilters = BuildAudioVolumeFilters(segment, applyAudioFilters, 0);
-            if (audioFilters.Count > 0) audioFilters.Add("alimiter=limit=0.98");
-            audioFilters.Add("aselect='" + keepExpression + "'");
-            audioFilters.Add("asetpts=N/SR/TB");
-            string audioFilter = "[1:a]" + string.Join(",", audioFilters.ToArray()) + "[a]";
-
-            return videoFilter + ";" + audioFilter;
-        }
-
-        private string BuildKeepExpression(RecordingSegment segment)
-        {
-            var terms = new List<string>();
-            if (segment.TrimStartSeconds > 0)
-            {
-                terms.Add("gte(t\\," + FormatSeconds(segment.TrimStartSeconds) + ")");
-            }
-
-            return terms.Count == 0 ? "1" : string.Join("*", terms.ToArray());
         }
 
         private void FinalizeVideoOnlyRecording(RecordingState recording)
@@ -1986,32 +1804,6 @@ namespace WindowBackRecorder
             {
                 QueueUiLog("영상 파일을 저장하지 못했어요: " + err);
             }
-        }
-
-        private int RunFilterVideoTimeline(string inputPath, string outputPath, RecordingSegment segment, out string err)
-        {
-            var args = new List<string>();
-            args.Add("-hide_banner");
-            args.Add("-y");
-            args.Add("-i");
-            args.Add(inputPath);
-            args.Add("-vf");
-            args.Add("select='" + BuildKeepExpression(segment) + "',setpts=N/FRAME_RATE/TB");
-            args.Add("-map");
-            args.Add("0:v:0");
-            args.Add("-c:v");
-            args.Add("libx264");
-            args.Add("-preset");
-            args.Add("veryfast");
-            args.Add("-crf");
-            args.Add("23");
-            args.Add("-pix_fmt");
-            args.Add("yuv420p");
-            args.Add("-an");
-            args.Add("-movflags");
-            args.Add("+faststart");
-            args.Add(outputPath);
-            return RunFfmpeg(args, out err);
         }
 
         private int RunTrimVideo(string inputPath, string outputPath, double trimStartSeconds, out string err)
@@ -2316,136 +2108,9 @@ namespace WindowBackRecorder
             }
         }
 
-        private double GetSegmentElapsedSeconds(RecordingState recording)
-        {
-            if (recording == null || recording.SegmentStartedUtc == DateTime.MinValue) return 0;
-            return Math.Max(0, (DateTime.UtcNow - recording.SegmentStartedUtc).TotalSeconds);
-        }
-
-        private void BeginAudioBoostRange(RecordingState recording)
-        {
-            if (recording == null || recording.CurrentSegment == null) return;
-            RecordingSegment segment = recording.CurrentSegment;
-            if (segment.ActiveAudioBoostStartSeconds.HasValue) return;
-
-            segment.ActiveAudioBoostStartSeconds = GetSegmentElapsedSeconds(recording);
-            segment.BoostAudio = true;
-            segment.AudioGain = ReducedPlaybackGain;
-            recording.BoostAudio = true;
-            recording.AudioGain = ReducedPlaybackGain;
-            recording.CurrentAudioGain = ReducedPlaybackGain;
-        }
-
-        private void EndAudioBoostRange(RecordingState recording, bool keepReducedMode)
-        {
-            if (recording == null)
-            {
-                return;
-            }
-
-            RecordingSegment segment = recording.CurrentSegment;
-            if (segment != null && segment.ActiveAudioBoostStartSeconds.HasValue)
-            {
-                double start = segment.ActiveAudioBoostStartSeconds.Value;
-                double end = GetSegmentElapsedSeconds(recording);
-                if (end > start + 0.05)
-                {
-                    segment.AudioBoostRanges.Add(new AudioBoostRange
-                    {
-                        StartSeconds = start,
-                        EndSeconds = end
-                    });
-                }
-                segment.ActiveAudioBoostStartSeconds = null;
-            }
-
-            if (!keepReducedMode)
-            {
-                recording.BoostAudio = false;
-                recording.AudioGain = 1.0;
-                recording.CurrentAudioGain = 1.0;
-            }
-        }
-
-        private void ApplySilentPlaybackIfRecording()
-        {
-            if (activeRecording == null || silentPlaybackToggle == null || silentPlaybackToggle.IsChecked != true)
-            {
-                return;
-            }
-            if (activeRecording.Target == null) return;
-
-            if (silentPlaybackApplied && audioSessionSnapshots.Count > 0)
-            {
-                BeginAudioBoostRange(activeRecording);
-                return;
-            }
-
-            DateTime now = DateTime.UtcNow;
-            if ((now - lastSilentPlaybackAttemptUtc).TotalSeconds < 2)
-            {
-                return;
-            }
-            lastSilentPlaybackAttemptUtc = now;
-
-            try
-            {
-                var alreadyLowered = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (AudioSessionSnapshot snapshot in audioSessionSnapshots)
-                {
-                    if (!string.IsNullOrEmpty(snapshot.SessionInstanceId)) alreadyLowered.Add(snapshot.SessionInstanceId);
-                }
-
-                List<AudioSessionSnapshot> snapshots = AudioSessionVolumeController.LowerMatchingSessions(
-                    activeRecording.Target.ProcessId,
-                    activeRecording.Target.ProcessName,
-                    (float)ReducedPlaybackVolume,
-                    alreadyLowered);
-
-                audioSessionSnapshots.AddRange(snapshots);
-                silentPlaybackApplied = audioSessionSnapshots.Count > 0;
-                if (silentPlaybackApplied)
-                {
-                    BeginAudioBoostRange(activeRecording);
-                    if (snapshots.Count > 0) AppendLog("대상 앱 재생 소리를 줄였어요. 저장할 때 소리는 다시 키웁니다.");
-                }
-                else
-                {
-                    AppendLog("낮출 수 있는 대상 앱 소리 세션을 찾지 못했어요.");
-                }
-            }
-            catch (Exception ex)
-            {
-                AppendLog("대상 앱 소리를 낮추지 못했어요: " + ex.Message);
-            }
-        }
-
-        private void ChangeReducedAudioMode(bool enabled)
-        {
-            lastSilentPlaybackAttemptUtc = DateTime.MinValue;
-
-            if (activeRecording == null)
-            {
-                if (!enabled) RestorePlaybackVolume();
-                return;
-            }
-
-            if (enabled)
-            {
-                ApplySilentPlaybackIfRecording();
-                SetStatus(silentPlaybackApplied ? "소리 줄이기 켬" : "녹화 중");
-            }
-            else
-            {
-                EndAudioBoostRange(activeRecording, false);
-                RestorePlaybackVolume();
-                SetStatus(activeRecording == null ? "준비됨" : "녹화 중");
-            }
-        }
-
         private void RestorePlaybackVolume()
         {
-            if (!silentPlaybackApplied && audioSessionSnapshots.Count == 0) return;
+            if (audioSessionSnapshots.Count == 0) return;
 
             try
             {
@@ -2455,7 +2120,6 @@ namespace WindowBackRecorder
             finally
             {
                 audioSessionSnapshots.Clear();
-                silentPlaybackApplied = false;
                 try
                 {
                     Dispatcher.BeginInvoke(new Action(delegate { AppendLog("대상 앱 재생 소리를 원래대로 되돌렸어요."); }));
@@ -2557,11 +2221,6 @@ namespace WindowBackRecorder
             {
                 lastWindowScanUtc = DateTime.UtcNow;
                 RefreshWindows(true);
-            }
-
-            if (activeRecording != null && silentPlaybackToggle != null && silentPlaybackToggle.IsChecked == true)
-            {
-                ApplySilentPlaybackIfRecording();
             }
 
             if (ffmpegProcess != null && ffmpegProcess.HasExited)
@@ -3211,9 +2870,7 @@ namespace WindowBackRecorder
         public bool DrawCursor;
         public AudioCaptureMode AudioMode;
         public bool HasLoopbackAudio;
-        public bool BoostAudio;
         public double AudioGain = 1.0;
-        public double CurrentAudioGain = 1.0;
         public RecordingSegment CurrentSegment;
         public DateTime SegmentStartedUtc = DateTime.MinValue;
         public int SegmentIndex;
@@ -3224,21 +2881,11 @@ namespace WindowBackRecorder
         public string VideoPath;
         public string AudioPath;
         public bool HasLoopbackAudio;
-        public bool BoostAudio;
         public double AudioGain = 1.0;
-        public double AudioOutputDelaySeconds;
         public int Fps;
         public DateTime VideoStartedUtc = DateTime.MinValue;
         public DateTime AudioStartedUtc = DateTime.MinValue;
         public double TrimStartSeconds;
-        public double? ActiveAudioBoostStartSeconds;
-        public readonly List<AudioBoostRange> AudioBoostRanges = new List<AudioBoostRange>();
-    }
-
-    public sealed class AudioBoostRange
-    {
-        public double StartSeconds;
-        public double EndSeconds;
     }
 
     public sealed class AudioSessionSnapshot

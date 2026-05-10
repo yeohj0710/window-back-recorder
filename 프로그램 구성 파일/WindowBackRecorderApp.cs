@@ -81,6 +81,7 @@ namespace WindowBackRecorder
         private const string OldDefaultRecordingsFolderName = "녹화 완료 영상";
         private const string TempFolderName = "recording-temp";
         private const double StartWarmupTrimSeconds = 3.0;
+        private const int HiddenWindowVisibleStripPixels = 6;
         private const int AudioReadyWaitMilliseconds = 2500;
         private const int VideoReadyWaitMilliseconds = 3500;
 
@@ -2036,16 +2037,16 @@ namespace WindowBackRecorder
 
             savedBounds = NativeWindows.GetBounds(selectedWindow.Handle);
             var area = WinForms.Screen.PrimaryScreen.WorkingArea;
-            int visibleStrip = Math.Min(140, Math.Max(80, savedBounds.Value.Width / 8));
+            int visibleStrip = Math.Max(1, Math.Min(HiddenWindowVisibleStripPixels, savedBounds.Value.Width));
             int x = area.Right - visibleStrip;
             int y = Math.Max(area.Top, Math.Min(savedBounds.Value.Top, area.Bottom - Math.Min(160, savedBounds.Value.Height)));
 
             NativeMethods.ShowWindow(selectedWindow.Handle, NativeMethods.SW_SHOWNOACTIVATE);
-            NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_TOPMOST, x, y, savedBounds.Value.Width, savedBounds.Value.Height,
+            NativeMethods.SetWindowPos(selectedWindow.Handle, NativeMethods.HWND_NOTOPMOST, x, y, savedBounds.Value.Width, savedBounds.Value.Height,
                 NativeMethods.SWP_NOACTIVATE | NativeMethods.SWP_SHOWWINDOW);
             targetWindowHidden = true;
             if (windowVisibilityToggle != null) windowVisibilityToggle.Content = "녹화창 다시 띄우기";
-            SetStatus("녹화창을 가장자리에 뒀어요");
+            SetStatus("녹화창을 거의 보이지 않게 숨겼어요");
         }
 
         private void RestoreTargetWindowFromHidden()

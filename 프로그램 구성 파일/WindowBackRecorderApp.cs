@@ -1654,8 +1654,11 @@ namespace WindowBackRecorder
                 int delayMs = Math.Max(1, (int)Math.Round(audioDelaySeconds * 1000.0));
                 filters.Insert(0, "adelay=" + delayMs.ToString(CultureInfo.InvariantCulture) + ":all=1");
             }
-            if (filters.Count == 0) return null;
-            filters.Add("alimiter=limit=0.98");
+            if (filters.Count > 0)
+            {
+                filters.Add("alimiter=limit=0.98");
+            }
+            filters.Add("apad");
             return string.Join(",", filters.ToArray());
         }
 
